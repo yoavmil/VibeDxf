@@ -4,39 +4,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-CodexDXF is a small, dependency-free C# / WPF 2D DXF viewer with element-to-element distance measurement, targeting `net10.0-windows`. No NuGet packages are used — keep it that way. See [README.md](README.md) for user-facing controls and the supported/unsupported DXF feature scope.
+VibeDxf is a small C# / WPF 2D DXF viewer with element-to-element distance measurement, targeting `net10.0-windows`. The drawing is rendered with Direct3D 11 and Direct2D through Vortice.Windows (`Vortice.Direct3D11`, `Vortice.Direct2D1`, `Vortice.D3DCompiler`). These are the only NuGet packages; don't add others without a good reason. See [README.md](README.md) for user-facing controls and the supported/unsupported DXF feature scope.
 
 ## Commands
 
 ```powershell
 # Build
-dotnet build .\CodexDXF.sln -c Release
+dotnet build .\VibeDxf.sln -c Release
 
 # Run the viewer (optional DXF path argument)
-dotnet run --project .\CodexDXF.csproj -- "path\to\file.dxf"
+dotnet run --project .\src\VibeDxf.csproj -- "path\to\file.dxf"
 
 # Run all checks (no test framework; a console app that throws on first failure)
-dotnet run --project .\Tests\CodexDXF.Checks.csproj -c Release
+dotnet run --project .\Tests\VibeDxf.Checks.csproj -c Release
 
 # Also verify against the sample drawing (not in repo; expects exactly 66,377 entities, none skipped)
-dotnet run --project .\Tests\CodexDXF.Checks.csproj -c Release -- "C:\Users\Yoav Miller\Downloads\182N-RND_REV-A.DXF"
+dotnet run --project .\Tests\VibeDxf.Checks.csproj -c Release -- "C:\Users\Yoav Miller\Downloads\182N-RND_REV-A.DXF"
 ```
 
 There is no way to run a single check; the program runs every check in sequence and stops at the first exception. To focus on one, temporarily comment out the others in [Tests/Program.cs](Tests/Program.cs).
 
 ## Architecture
 
-All app sources sit flat in the repo root under namespace `CodexDXF`:
+All app sources sit flat in [src/](src/) alongside [src/VibeDxf.csproj](src/VibeDxf.csproj), under namespace `VibeDxf`. The solution, [nuget.config](nuget.config) and docs stay in the repo root:
 
-- [Geometry.cs](Geometry.cs) — `Curve` (a single record representing both line segments and arcs; `Radius == 0` means line) with analytic `Closest(Point)` and `Curve.Distance(a, b)` returning a `ClosestPair`. Also `DxfEntity` (kind, layer, handle, list of curves). Every entity — including polylines with bulges — is decomposed into `Curve`s, and all measurement is done in DXF XY coordinates, independent of zoom or tessellation.
-- [DxfReader.cs](DxfReader.cs) — ASCII-only parser. Reads all group-code pairs into memory, picks up `$INSUNITS`, then walks `0`-delimited records in the `ENTITIES` section. Unsupported entity types are counted in `DxfDocument.Skipped`. Polyline bulges become arc `Curve`s.
-- [MeasurementTarget.cs](MeasurementTarget.cs) — a selection target is either a whole entity or the exact midpoint of one of its straight segments (`MidpointSegment` index). `MidpointIndex` keeps X- and Y-sorted arrays and binary-searches them for hover snapping instead of scanning every entity.
-- [DxfViewport.cs](DxfViewport.cs) — custom `FrameworkElement` that renders with retained visuals: one frozen `StreamGeometry` for the whole drawing in `baseVisual`, plus separate `selectionVisual`, `measurementVisual` and `snapVisual`. Pan only updates `cameraTransform` and does not rebuild the base drawing. Zoom and fit refresh pen widths to keep strokes a constant screen width. Selection order matters: signed ΔX/ΔY go from the first (orange) target to the second (blue).
-- [MainWindow.xaml.cs](MainWindow.xaml.cs) — file open, drag-drop, background-thread parsing, and the footer that shows status and measurement.
+- [Geometry.cs](src/Geometry.cs) — `Curve` (a single record representing both line segments and arcs; `Radius == 0` means line) with analytic `Closest(Point)` and `Curve.Distance(a, b)` returning a `ClosestPair`. Also `DxfEntity` (kind, layer, handle, list of curves). Every entity — including polylines with bulges — is decomposed into `Curve`s, and all measurement is done in DXF XY coordinates, independent of zoom or tessellation.
+- [DxfReader.cs](src/DxfReader.cs) — ASCII-only parser. Reads all group-code pairs into memory, picks up `$INSUNITS`, then walks `0`-delimited records in the `ENTITIES` section. Unsupported entity types are counted in `DxfDocument.Skipped`. Polyline bulges become arc `Curve`s.
+- [MeasurementTarget.cs](src/MeasurementTarget.cs) — a selection target is either a whole entity or the exact midpoint of one of its straight segments (`MidpointSegment` index). `MidpointIndex` keeps X- and Y-sorted arrays and binary-searches them for hover snapping instead of scanning every entity.
+- [DrawingRenderer.cs](src/DrawingRenderer.cs) — Direct3D 11 renderer on a flip-model swap chain. `SetDrawing` uploads the curves once per document into immutable GPU buffers: line segments as a `LineList`, and arcs as per-instance data that the `ArcVS` shader expands into line strips. Arcs are sorted by radius into power-of-two buckets, each drawn with just enough segments for ~¼ px chord error at the current zoom. Coordinates are stored relative to the drawing's centre (`Origin`) so float32 keeps precision. A frame only rewrites one dynamic constant buffer (camera + color) and issues the draw calls. Overlays are drawn afterwards with Direct2D/DirectWrite on the same back buffer, in DIPs. HLSL is compiled at startup with `D3DCompiler`.
+- [DxfViewport.cs](src/DxfViewport.cs) — a WPF `Border` that holds `SwapChainHost`, an `HwndHost` child window owning the swap chain. The child returns `HTTRANSPARENT` from `WM_NCHITTEST`, so all mouse input (including the wheel) arrives as ordinary WPF events on `DxfViewport`. The viewport owns the camera (`scale`/`offset`, DIPs, y-up world), selection, hover snapping and measurement. Every change calls `Invalidate`, which coalesces into one `RenderNow` per dispatcher pass. Selected entities' outlines are rebuilt in screen space each frame as Direct2D path geometries (3 px strokes). Selection order matters: signed ΔX/ΔY go from the first (orange) target to the second (blue).
+- [MainWindow.xaml.cs](src/MainWindow.xaml.cs) — file open, drag-drop, background-thread parsing, and the footer that shows status and measurement.
 
 ## Gotchas
 
-- **The test project compiles the app sources by linking them.** [Tests/CodexDXF.Checks.csproj](Tests/CodexDXF.Checks.csproj) sets `EnableDefaultCompileItems=false` and lists each linked file explicitly. A new app source file that the viewport/geometry/reader depends on must be added there too. The main project in turn excludes `Tests\**`.
-- **Viewport checks use reflection on private members.** [Tests/ViewportChecks.cs](Tests/ViewportChecks.cs) accesses the `baseVisual` and `snapVisual` fields and the `SelectAt(Point, bool)` and `SetHoveredMidpoint(MeasurementTarget)` methods by name. Renaming or changing the signature of any of these breaks the checks at runtime, not at compile time. These checks run on a dedicated STA thread.
-- The checks also assert that hover and selection never replace the base drawing's `Pen` instance. This is a performance invariant: overlays must not rebuild `baseVisual`.
+- **The test project compiles the app sources by linking them.** [Tests/VibeDxf.Checks.csproj](Tests/VibeDxf.Checks.csproj) sets `EnableDefaultCompileItems=false` and lists each linked file explicitly. A new app source file that the viewport/geometry/reader depends on must be added there too, and it repeats the Vortice `PackageReference`s.
+- **Viewport checks use reflection on private members.** [Tests/ViewportChecks.cs](Tests/ViewportChecks.cs) accesses `DxfViewport`'s `host`, `offset`, `scale` and `hoveredMidpoint` fields, `SwapChainHost`'s auto-property backing field `<Renderer>k__BackingField`, `DrawingRenderer`'s `lineBuffer`/`arcBuffer`, and the `SelectAt(Point, bool)`, `SetHoveredMidpoint(MeasurementTarget)` and `RenderNow()` methods by name. Renaming or changing the signature of any of these breaks the checks at runtime, not at compile time. These checks run on a dedicated STA thread and show a real off-screen window, so they need a GPU or the WARP fallback.
+- The checks assert that hover, selection, pan and zoom reuse the same GPU buffers. This is a performance invariant: only `SetDrawing` (a new document, or a renderer re-created on `Loaded`) may upload geometry.
+- **Renderer lifetime follows the visual tree, not the HWND.** When the window closes, WPF parks `HwndHost` children instead of destroying them, so `DestroyWindowCore` isn't called. `SwapChainHost` disposes the renderer on `Unloaded` and re-creates it on `Loaded`.
+- Don't remove `HTTRANSPARENT` or make the child window disabled. A disabled child drops clicks, and a hit-testable one takes mouse input away from WPF.
+- [nuget.config](nuget.config) clears all package sources except nuget.org, because the machine-wide config has a private feed that fails with 401.
 - `ALT-F2/` holds a Visual Studio diagnostics session (`.diagsession`) from profiling. It is not source.

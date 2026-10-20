@@ -1,16 +1,23 @@
-# CodexDXF
+# VibeDxf
 
-A dependency-free C# / WPF DXF viewer for Windows, targeting .NET 10.
+A 2D DXF viewer for Windows that measures the shortest distance between any two elements. Written in C# / WPF on .NET 10, with GPU rendering through Direct3D 11 and Direct2D ([Vortice.Windows](https://github.com/amerkoleci/Vortice.Windows)).
 
-## Run
+## Requirements
 
-Open `CodexDXF.sln` in Visual Studio, or:
+- Windows 10 or later
+- .NET 10 SDK
+- A Direct3D 11 capable GPU. Without one, the viewer falls back to WARP, Windows' software rasterizer.
+
+## Build and run
+
+Open `VibeDxf.sln` in Visual Studio, or from the repository root:
 
 ```powershell
-dotnet run --project .\CodexDXF.csproj -- "C:\Users\Yoav Miller\Downloads\182N-RND_REV-A.DXF"
+dotnet build .\VibeDxf.sln -c Release
+dotnet run --project .\src\VibeDxf.csproj -c Release -- "path\to\drawing.dxf"
 ```
 
-The sample remains at its original location and is not committed to this repository.
+The DXF path is optional; you can also open a file from the app. Package restore uses only nuget.org (see `nuget.config`).
 
 ## Controls
 
@@ -19,32 +26,50 @@ The sample remains at its original location and is not committed to this reposit
 - Hold the middle or right mouse button and drag to pan.
 - F fits the drawing to the window.
 - Left click selects an element (orange), then a second element (blue).
-- Hover within 8 screen pixels of a straight segment midpoint to show a green triangle. Click to select that exact midpoint. Selected midpoints have orange/blue triangles.
-- Midpoints work on LINE entities and straight polyline segments. You can measure midpoint-to-midpoint, midpoint-to-element, or element-to-midpoint. ΔX and ΔY follow the selection order.
-- Hold Shift while clicking to select the whole element even when near a midpoint. In dense drawings, zoom in to distinguish nearby midpoints.
-- A green connector shows the shortest distance between the two geometries.
-- The footer displays the absolute distance and signed ΔX / ΔY from the orange element's closest point to the blue element's closest point. Absolute distance = sqrt(ΔX² + ΔY²).
+- Hover within 8 screen pixels of a straight segment's midpoint to show a green triangle. Click to select that exact midpoint. Selected midpoints show as orange/blue triangles.
+- Midpoints work on LINE entities and straight polyline segments. You can measure midpoint-to-midpoint, midpoint-to-element, or element-to-midpoint.
+- Hold Shift while clicking to select the whole element even when near a midpoint. In dense drawings, zoom in to tell nearby midpoints apart.
+- A green connector shows the shortest distance between the two selections.
+- The footer shows the absolute distance and the signed ΔX / ΔY from the orange selection's closest point to the blue one's. Absolute distance = sqrt(ΔX² + ΔY²).
 - Click a selected element to deselect it. A third selection starts a new pair.
-- Click empty space or press Esc to clear selection.
+- Click empty space or press Esc to clear the selection.
 
-## Initial scope
+## Supported DXF
 
-Reads ASCII DXF LINE, ARC, CIRCLE, LWPOLYLINE and legacy 2D POLYLINE entities, including curved bulge segments. Each polyline is one selectable element. Keeps entity type, layer and handle. Uses analytic closest-point calculations for the supported curves; measurements do not depend on zoom or display tessellation.
+Reads ASCII DXF LINE, ARC, CIRCLE, LWPOLYLINE and legacy 2D POLYLINE entities, including curved bulge segments. Each polyline is one selectable element. Entity type, layer and handle are kept.
 
-Drawing geometry is cached in a frozen WPF StreamGeometry and retained in a DrawingVisual. Panning updates a persistent parent transform without replacing the base drawing commands. Selection and screen-space measurement annotations use separate visuals. Zoom and fit refresh pen widths to maintain constant screen-space stroke thickness. File parsing runs off the UI thread. Hit testing first checks entity bounds, then evaluates the underlying curves.
+Not supported yet: INSERT/block references, text, dimensions, hatches, splines, ellipses, binary DXF, and 3D/OCS geometry. Unsupported entity types are counted in the footer. All supported ENTITIES records are shown together, without layout filtering, layer visibility, colors or linetypes. Non-ASCII layer names from legacy code pages may need encoding support.
 
-This is an initial 2D XY viewer, not a full CAD engine. It does not expand INSERT/block references or render text, dimensions, hatches, splines, ellipses, binary DXF, or 3D/OCS geometry correctly. Unsupported entity types are counted in the footer. It combines supported ENTITIES records without layout filtering and does not yet apply layer visibility, colors or linetypes. Non-ASCII layer names from legacy code pages may need encoding support.
+Units come from `$INSUNITS` when present; otherwise the footer says the drawing units are unspecified. No unit conversion is applied.
 
-Units are read from `$INSUNITS` when present; otherwise the footer explicitly says drawing units are unspecified. No unit conversion is applied. Intersections have zero distance. Closest points can be nonunique (for example parallel lines), so ΔX / ΔY describe one valid closest pair.
+## Measurement
 
-## Verify
+Distances use analytic closest-point calculations on the actual lines and arcs, in DXF XY coordinates, so they don't depend on zoom or on how curves are drawn on screen. Intersecting elements measure zero. The closest pair can be non-unique (for example, two parallel lines), in which case ΔX / ΔY describe one valid closest pair.
 
-```powershell
-dotnet build .\CodexDXF.sln -c Release
-dotnet run --project .\Tests\CodexDXF.Checks.csproj -c Release -- "C:\Users\Yoav Miller\Downloads\182N-RND_REV-A.DXF"
+## Rendering
+
+The drawing is uploaded to the GPU once per file: line segments as one vertex buffer, and arcs as instances that a vertex shader expands, with more segments as you zoom in. Pan and zoom only change a camera constant, so frame cost doesn't grow with rebuilding geometry. Strokes stay 1 pixel wide at any zoom. Selection highlights, midpoint markers and the measurement label are drawn on top with Direct2D. Files are parsed off the UI thread, and hit testing checks entity bounds before evaluating curves.
+
+## Project layout
+
+```
+VibeDxf.sln
+src/      the viewer: VibeDxf.csproj, DXF reader, geometry, measurement, renderer, WPF window
+Tests/    VibeDxf.Checks.csproj, a console app that runs all checks
 ```
 
-The console checks cover crossing, parallel, overlapping and degenerate lines, circle/line intersections and tangency, nested and concentric circles, bounded arcs, clockwise arcs, parser units/bulges and the example drawing. No test packages or external NuGet dependencies are needed.
+## Checks
 
-The example's ENTITIES section contains 66,377 supported elements: 66,365 lines and 12 arcs, all on layer `0`. It declares millimeters through `$INSUNITS`. The block definitions are not inserted into this drawing's ENTITIES section.
+```powershell
+dotnet run --project .\Tests\VibeDxf.Checks.csproj -c Release
+```
 
+The checks are a console app with no test framework. They stop at the first failure. They cover:
+
+- distances between lines and arcs: crossing, parallel, overlapping and degenerate lines; circle/line intersections and tangency; nested and concentric circles; bounded and clockwise arcs
+- DXF units, metadata and bulge parsing
+- selection, snapping and measurement in the viewport
+- overlay rendering in an off-screen window
+- that pan, zoom, hover and selection reuse the uploaded GPU buffers
+
+Optionally, pass the path to the reference drawing `182N-RND_REV-A.DXF` (not committed to this repository) as an extra argument. The checks then also expect exactly 66,377 supported entities, none skipped.

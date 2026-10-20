@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Windows;
-namespace CodexDXF;
+namespace VibeDxf;
 public sealed class DxfDocument
 {
     public List<DxfEntity> Entities { get; } = [];

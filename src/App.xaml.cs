@@ -2,7 +2,7 @@
 using System.Data;
 using System.Windows;
 
-namespace CodexDXF;
+namespace VibeDxf;
 
 /// <summary>
 /// Interaction logic for App.xaml

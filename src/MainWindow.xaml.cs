@@ -2,7 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.Win32;
-namespace CodexDXF;
+namespace VibeDxf;
 public partial class MainWindow : Window
 {
     private bool loading;
@@ -48,7 +48,7 @@ public partial class MainWindow : Window
         {
             var doc = await Task.Run(() => DxfReader.Load(path));
             Viewer.SetDocument(doc);
-            Title = $"CodexDXF — {Path.GetFileName(path)}";
+            Title = $"VibeDxf — {Path.GetFileName(path)}";
             Status.Text = $"{doc.Entities.Count:N0} elements • {doc.Units} • Wheel: zoom • Middle/right drag: pan • Triangle: midpoint • Shift+click: whole element • F: fit • Esc: clear";
             if (doc.Skipped.Count > 0) Status.Text += " • Skipped: " + string.Join(", ", doc.Skipped.Select(p => $"{p.Key} ({p.Value})"));
         }

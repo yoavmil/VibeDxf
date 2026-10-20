@@ -1,5 +1,5 @@
 using System.Windows;
-namespace CodexDXF;
+namespace VibeDxf;
 
 public readonly record struct ClosestPair(Point A, Point B)
 {

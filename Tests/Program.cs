@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Diagnostics;
 using System.IO;
-using CodexDXF;
+using VibeDxf;
 int count = 0;
 void Check(string name, Curve a, Curve b, double expected)
 {

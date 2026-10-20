@@ -1,5 +1,5 @@
 using System.Windows;
-namespace CodexDXF;
+namespace VibeDxf;
 
 /// <summary>A whole element or the exact midpoint of one of its straight segments.</summary>
 public sealed record MeasurementTarget(DxfEntity Entity, int? MidpointSegment = null)
