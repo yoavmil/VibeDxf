@@ -1,0 +1,18 @@
+<Window x:Class="CodexDXF.MainWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:CodexDXF"
+ Title="CodexDXF" Width="1280" Height="850" MinWidth="760" MinHeight="480"
+ Background="#111820" Foreground="#DCE5EF" AllowDrop="True" Drop="FileDropped" DragOver="FileDragOver">
+ <DockPanel>
+  <Menu DockPanel.Dock="Top" Background="#CBD7E3" Foreground="#18212B" Padding="8,5">
+   <MenuItem Header="_File"><MenuItem Header="_Open DXF…" InputGestureText="Ctrl+O" Click="OpenClicked"/></MenuItem>
+  </Menu>
+  <Border DockPanel.Dock="Bottom" Background="#202C39" Padding="14,9">
+   <StackPanel><TextBlock x:Name="Measurement" FontSize="16" Foreground="#58D7C1" Text="Select two elements to measure their shortest distance."/>
+    <TextBlock x:Name="Status" Margin="0,5,0,0" Text="Open or drop a DXF file.  •  Wheel: zoom  •  Middle/right drag: pan  •  F: fit  •  Esc: clear selection"/>
+   </StackPanel>
+  </Border>
+  <local:DxfViewport x:Name="Viewer"/>
+ </DockPanel>
+</Window>

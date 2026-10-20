@@ -1,0 +1,73 @@
+using System.Windows;
+namespace CodexDXF;
+
+/// <summary>A whole element or the exact midpoint of one of its straight segments.</summary>
+public sealed record MeasurementTarget(DxfEntity Entity, int? MidpointSegment = null)
+{
+    public Point? Midpoint => MidpointSegment is int i ? Entity.Curves[i].At(0.5) : null;
+    public string Description => MidpointSegment is null ? Entity.Kind : $"{Entity.Kind} midpoint";
+    public ClosestPair Distance(MeasurementTarget other)
+    {
+        if (Midpoint is Point a)
+        {
+            if (other.Midpoint is Point b) return new ClosestPair(a, b);
+            return other.Entity.Curves.Select(c => new ClosestPair(a, c.Closest(a))).MinBy(p => p.Distance);
+        }
+        if (other.Midpoint is Point point)
+            return Entity.Curves.Select(c => new ClosestPair(c.Closest(point), point)).MinBy(p => p.Distance);
+        return Entity.Distance(other.Entity);
+    }
+}
+
+/// <summary>Two sorted indexes avoid scanning the drawing on every pointer move.</summary>
+public sealed class MidpointIndex
+{
+    private readonly Entry[] byX;
+    private readonly Entry[] byY;
+    private sealed record Entry(MeasurementTarget Target, Point Point);
+    public MidpointIndex(IEnumerable<DxfEntity> entities)
+    {
+        var entries = entities.SelectMany(e => e.Curves.Select((c, i) => (Curve: c, Index: i))
+            .Where(v => v.Curve.IsLine)
+            .Select(v => new Entry(new MeasurementTarget(e, v.Index), v.Curve.At(0.5)))).ToArray();
+        byX = entries.OrderBy(e => e.Point.X).ToArray();
+        byY = entries.OrderBy(e => e.Point.Y).ToArray();
+    }
+    public MeasurementTarget? Find(Point point, double radius)
+    {
+        var x0 = Lower(byX, point.X - radius, true); var x1 = Upper(byX, point.X + radius, true);
+        var y0 = Lower(byY, point.Y - radius, false); var y1 = Upper(byY, point.Y + radius, false);
+        var useX = x1 - x0 <= y1 - y0;
+        var entries = useX ? byX : byY;
+        var start = useX ? x0 : y0; var end = useX ? x1 : y1;
+        MeasurementTarget? nearest = null; var best = radius * radius;
+        for (int i = start; i < end; i++)
+        {
+            var distance = (entries[i].Point - point).LengthSquared;
+            if (distance <= best) { nearest = entries[i].Target; best = distance; }
+        }
+        return nearest;
+    }
+    private static int Lower(Entry[] entries, double value, bool x)
+    {
+        int lo = 0, hi = entries.Length;
+        while (lo < hi)
+        {
+            int mid = lo + (hi - lo) / 2;
+            if ((x ? entries[mid].Point.X : entries[mid].Point.Y) < value) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
+    }
+    private static int Upper(Entry[] entries, double value, bool x)
+    {
+        int lo = 0, hi = entries.Length;
+        while (lo < hi)
+        {
+            int mid = lo + (hi - lo) / 2;
+            if ((x ? entries[mid].Point.X : entries[mid].Point.Y) <= value) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
+    }
+}

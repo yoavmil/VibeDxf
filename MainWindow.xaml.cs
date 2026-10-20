@@ -1,0 +1,73 @@
+using System.IO;
+using System.Windows;
+using System.Windows.Input;
+using Microsoft.Win32;
+namespace CodexDXF;
+public partial class MainWindow : Window
+{
+    private bool loading;
+    public MainWindow()
+    {
+        InitializeComponent();
+        Viewer.SelectionChanged += () =>
+        {
+            var selected = Viewer.Selected;
+            if (selected.Count == 2)
+            {
+                var m = Viewer.Measurement!.Value;
+                Measurement.Text = $"{selected[0].Description} → {selected[1].Description} | Distance: {m.Distance:0.######}   ΔX: {m.B.X - m.A.X:+0.######;-0.######;0}   ΔY: {m.B.Y - m.A.Y:+0.######;-0.######;0}   [{Viewer.Document?.Units}]";
+            }
+            else Measurement.Text = selected.Count == 1
+                ? $"Selected {selected[0].Description} • layer {selected[0].Entity.Layer} • handle {selected[0].Entity.Handle}. Select another element to measure."
+                : "Select two elements to measure their shortest distance.";
+        };
+        PreviewKeyDown += async (_, e) =>
+        {
+            if (e.Key == Key.O && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; await ChooseFile(); }
+            if (e.Key == Key.F) Viewer.Fit();
+            if (e.Key == Key.Escape) Viewer.ClearSelection();
+        };
+        Loaded += async (_, _) =>
+        {
+            var args = Environment.GetCommandLineArgs();
+            if (args.Length > 1 && File.Exists(args[1])) await OpenFile(args[1]);
+        };
+    }
+    private async void OpenClicked(object sender, RoutedEventArgs e) => await ChooseFile();
+    private async Task ChooseFile()
+    {
+        var dialog = new OpenFileDialog { Filter = "DXF drawings (*.dxf)|*.dxf", CheckFileExists = true };
+        if (dialog.ShowDialog(this) == true) await OpenFile(dialog.FileName);
+    }
+    private async Task OpenFile(string path)
+    {
+        if (loading) return;
+        loading = true;
+        Status.Text = $"Loading {Path.GetFileName(path)}…";
+        try
+        {
+            var doc = await Task.Run(() => DxfReader.Load(path));
+            Viewer.SetDocument(doc);
+            Title = $"CodexDXF — {Path.GetFileName(path)}";
+            Status.Text = $"{doc.Entities.Count:N0} elements • {doc.Units} • Wheel: zoom • Middle/right drag: pan • Triangle: midpoint • Shift+click: whole element • F: fit • Esc: clear";
+            if (doc.Skipped.Count > 0) Status.Text += " • Skipped: " + string.Join(", ", doc.Skipped.Select(p => $"{p.Key} ({p.Value})"));
+        }
+        catch (Exception ex)
+        {
+            Status.Text = "Could not open drawing.";
+            MessageBox.Show(this, ex.Message, "Open DXF", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally { loading = false; }
+    }
+    private void FileDragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetData(DataFormats.FileDrop) is string[] paths && paths.Length == 1 &&
+            Path.GetExtension(paths[0]).Equals(".dxf", StringComparison.OrdinalIgnoreCase) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+    private async void FileDropped(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] { Length: 1 } paths &&
+            Path.GetExtension(paths[0]).Equals(".dxf", StringComparison.OrdinalIgnoreCase)) await OpenFile(paths[0]);
+    }
+}

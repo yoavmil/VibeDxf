@@ -1,0 +1,10 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+TestResults/
+
+# Local profiler recordings
+ALT-F2/
+*.diagsession
