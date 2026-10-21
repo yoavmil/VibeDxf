@@ -4,6 +4,8 @@
 
 **[Download the Windows x64 installer](https://github.com/yoavmil/VibeDxf/releases/download/v0.1.1/VibeDxf-Setup-0.1.1-win-x64.exe)**
 
+![VibeDxf measuring the shortest distance from the circle inside b to a wavy spline underline](docs/images/VibeDxf-demo.png)
+
 A truly-free 2D DXF viewer for Windows. I made this because the commercial DXF viewers requiers registration.
 
 This viewer can load large files and can measures the shortest distance between any two elements.
