@@ -86,13 +86,15 @@ public sealed class HatchChecks
     }
 
     [Fact]
-    public void PublicSampleVisualAtlas()=>TestSupport.Run("GPU atlas: every one of the 77 public sample hatch instances",()=>TestSupport.Sta(()=>
+    public void PublicSampleVisualAtlas()=>TestSupport.Run("GPU atlas: every one of the 89 public sample hatch instances",()=>TestSupport.Sta(()=>
     {
         const BindingFlags flags=BindingFlags.Instance|BindingFlags.NonPublic;
         object? Field(object target,string name)=>target.GetType().GetField(name,flags)!.GetValue(target);
         void Render(DxfViewport view)=>view.GetType().GetMethod("RenderNow",flags)!.Invoke(view,null);
         var doc=DxfReader.Load(Path.Combine(AppContext.BaseDirectory,"Fixtures","Public","api-cw750-details.dxf"));
-        var hatches=doc.Entities.Where(e=>e.Kind=="HATCH").ToArray();Assert.Equal(77,hatches.Length);
+        // 73 model-space hatches plus a 4-hatch title block on each of the 4 sheets.
+        var hatches=doc.Entities.Concat(doc.Layouts.SelectMany(l=>l.Entities)).Where(e=>e.Kind=="HATCH").ToArray();Assert.Equal(89,hatches.Length);
+        Assert.All(doc.Layouts,l=>Assert.Equal(4,l.Entities.Count(e=>e.Kind=="HATCH")));
         var view=new DxfViewport();var window=new Window{Content=view,Width=640,Height=480,Left=-20000,Top=-20000,WindowStyle=WindowStyle.None,ShowInTaskbar=false,ShowActivated=false};
         void Pump()=>Dispatcher.CurrentDispatcher.Invoke(()=>{},DispatcherPriority.ApplicationIdle);
         try
@@ -102,6 +104,8 @@ public sealed class HatchChecks
             var lines=Field(renderer,"lineBuffer");var fill=Field(renderer,"fillBuffer");
             foreach(var hatch in hatches)
             {
+                // Switching space changes only the camera and draw ranges, never the uploaded buffers.
+                view.ActiveLayout=doc.Layouts.FindIndex(l=>l.Entities.Contains(hatch));
                 view.ClearSelection();((List<MeasurementTarget>)Field(view,"selected")!).Add(new(hatch));
                 view.GetType().GetField("bounds",flags)!.SetValue(view,hatch.Bounds);view.Fit();Pump();
                 VisualReport.Capture(renderer,$"Sample hatch {hatch.Handle} · {(hatch.FillContours.Count>0?"solid":"pattern")} · orange = hatch strokes and contour, white = surrounding drawing",()=>Render(view));
@@ -156,7 +160,9 @@ public sealed class HatchChecks
     public void PublicSampleHatchBoundaryAudit()=>TestSupport.Run("Every public sample hatch stroke stays inside and reaches its boundary",()=>
     {
         var doc=DxfReader.Load(Path.Combine(AppContext.BaseDirectory,"Fixtures","Public","api-cw750-details.dxf"));
-        var hatches=doc.Entities.Where(e=>e.Kind=="HATCH").ToArray();Assert.Equal(77,hatches.Length);
+        // 73 model-space hatches plus a 4-hatch title block on each of the 4 sheets.
+        var hatches=doc.Entities.Concat(doc.Layouts.SelectMany(l=>l.Entities)).Where(e=>e.Kind=="HATCH").ToArray();Assert.Equal(89,hatches.Length);
+        Assert.All(doc.Layouts,l=>Assert.Equal(4,l.Entities.Count(e=>e.Kind=="HATCH")));
         var problems=new List<string>();
         foreach(var hatch in hatches)
         {

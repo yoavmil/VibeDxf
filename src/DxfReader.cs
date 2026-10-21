@@ -2,9 +2,25 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 namespace VibeDxf;
+// A paper-space window onto model space; ModelToPaper follows ezdxf (top views only).
+public sealed record DxfViewportWindow(string Handle, Rect Paper, System.Windows.Media.Matrix ModelToPaper);
+/// <summary>One paper layout (sheet tab): its paper-space entities and the viewports that show model space.</summary>
+public sealed class DxfLayout(string name)
+{
+    public string Name { get; } = name;
+    public List<DxfEntity> Entities { get; } = [];
+    public List<DxfViewportWindow> Viewports { get; } = [];
+    public Rect Bounds => Viewports.Aggregate(Entities.Aggregate(Rect.Empty, (r, e) => { r.Union(e.Bounds); return r; }),
+        (r, v) => { r.Union(v.Paper); return r; });
+    // The first VIEWPORT of every layout is the sheet's own view, not a window.
+    internal bool SheetViewSeen { get; set; }
+}
 public sealed class DxfDocument
 {
+    /// <summary>Model space. Paper-space records belong to <see cref="Layouts"/>.</summary>
     public List<DxfEntity> Entities { get; } = [];
+    /// <summary>Paper layouts in tab order.</summary>
+    public List<DxfLayout> Layouts { get; } = [];
     public Dictionary<string, int> Skipped { get; } = [];
     public string Units { get; set; } = "drawing units (unspecified)";
     public Dictionary<string,int> RenderingWarnings { get; } = [];
@@ -34,6 +50,8 @@ public static class DxfReader
             if (pairs[j].Code == 9 && pairs[j].Value == "$INSUNITS")
                 doc.Units = pairs[j + 1].Value switch { "1" => "inches", "2" => "feet", "4" => "mm", "5" => "cm", "6" => "m", "0" => "drawing units (unitless)", var u => $"drawing units (INSUNITS={u})" };
         var blocks=new Dictionary<string,(Record Header,List<Record> Records)>(StringComparer.OrdinalIgnoreCase);
+        var blockNames=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+        var layoutRecords=new List<Record>();
         var entities=new List<Record>();string section="";List<Record>? blockRecords=null;
         for(int i=0;i<pairs.Count;)
         {
@@ -43,6 +61,8 @@ public static class DxfReader
             if(record.Kind=="SECTION"){section=record.S(2);continue;}
             if(record.Kind=="ENDSEC"){section="";continue;}
             if(section=="ENTITIES")entities.Add(record);
+            else if(section=="TABLES"&&record.Kind=="BLOCK_RECORD")blockNames[record.S(5)]=record.S(2);
+            else if(section=="OBJECTS"&&record.Kind=="LAYOUT")layoutRecords.Add(record);
             else if(section=="BLOCKS")
             {
                 if(record.Kind=="BLOCK")
@@ -54,7 +74,48 @@ public static class DxfReader
             }
         }
         void Skip(string kind)=>doc.Skipped[kind]=doc.Skipped.GetValueOrDefault(kind)+1;
+        void Note(string note)=>doc.RenderingWarnings[note]=doc.RenderingWarnings.GetValueOrDefault(note)+1;
         int expansionCount=0;
+        // LAYOUT objects name the sheet tabs and own a *Paper_Space block. The active layout's content is
+        // stored in ENTITIES with group 67=1; every other layout's content is its block's records.
+        var layouts=new List<(DxfLayout Layout,int Tab,string Block)>();
+        foreach(var record in layoutRecords)
+        {
+            var own=record.Fields.SkipWhile(f=>!(f.Code==100&&f.Value=="AcDbLayout")).ToList();
+            var block=blockNames.GetValueOrDefault(own.FirstOrDefault(f=>f.Code==330)?.Value??"","");
+            if(block.Length==0||block.Equals("*Model_Space",StringComparison.OrdinalIgnoreCase))continue;
+            var name=own.FirstOrDefault(f=>f.Code==1)?.Value;
+            layouts.Add((new DxfLayout(string.IsNullOrWhiteSpace(name)?block:name),(int)new Record("",own).N(71),block));
+        }
+        layouts.Sort((a,b)=>a.Tab.CompareTo(b.Tab));
+        var active=layouts.FirstOrDefault(l=>l.Block.Equals("*Paper_Space",StringComparison.OrdinalIgnoreCase)).Layout;
+        // Files without LAYOUT objects (R12) still mark paper space with group 67.
+        if(active==null&&entities.Any(r=>r.N(67)!=0)){active=new DxfLayout("Layout");layouts.Insert(0,(active,0,"*Paper_Space"));}
+        doc.Layouts.AddRange(layouts.Select(l=>l.Layout));
+        // Current output: null is model space. Block children follow their insert.
+        DxfLayout? target=null;bool entitiesPass=true;
+        List<DxfEntity> Output()=>target?.Entities??doc.Entities;
+        void ReadViewport(Record r,DxfLayout layout)
+        {
+            var flags=(long)r.N(90);
+            // The sheet view is ID 1 in the active layout. Inactive layouts store ID and status 0 for every
+            // viewport, so there the first one is the sheet view and the status is not meaningful.
+            bool first=!layout.SheetViewSeen;layout.SheetViewSeen=true;
+            if(r.N(69)==1||(first&&r.N(69)==0))return;
+            if((flags&131072)!=0||(layout==active&&r.Fields.Any(f=>f.Code==68)&&r.N(68)==0))return;
+            if((flags&1)!=0||Math.Abs(r.N(16))>1e-9||Math.Abs(r.N(26))>1e-9||r.N(36,1)<=0){Skip("VIEWPORT (3D view)");return;}
+            double width=r.N(40),height=r.N(41),viewHeight=r.N(45);
+            if(!(width>0&&height>0&&viewHeight>0)){Skip("VIEWPORT (invalid view)");return;}
+            var scale=height/viewHeight;var transform=System.Windows.Media.Matrix.Identity;
+            transform.Translate(-r.N(17),-r.N(27));transform.Scale(scale,scale);transform.Rotate(r.N(51));
+            transform.Translate(r.N(10)-r.N(12)*scale,r.N(20)-r.N(22)*scale);
+            var paper=new Rect(r.N(10)-width/2,r.N(20)-height/2,width,height);
+            layout.Viewports.Add(new DxfViewportWindow(r.S(5),paper,transform));
+            Point[] corners=[paper.BottomLeft,paper.BottomRight,paper.TopRight,paper.TopLeft];
+            layout.Entities.Add(new DxfEntity("VIEWPORT",r.S(8,"0"),r.S(5),DxfPrimitives.Outline([corners])){IsAnnotation=true});
+            if((flags&65536)!=0&&r.Fields.Any(f=>f.Code==340))Note("VIEWPORT non-rectangular clipping is shown as its rectangle");
+            if(r.Fields.Any(f=>f.Code==331))Note("VIEWPORT frozen layers are still shown");
+        }
         // Shared by INSERT and dimension blocks; a successful lookup pushes the name onto the cycle stack.
         bool Enter(string kind,string name,HashSet<string> stack,out (Record Header,List<Record> Records) block)
         {
@@ -104,9 +165,9 @@ public static class DxfReader
                 transform.Translate(record.N(12),record.N(22));
                 if(record.N(230,1)<0)transform.Append(new(-1,0,0,1,0,0));
                 transform.Append(parent);
-                var before=doc.Entities.Count;
+                var before=Output().Count;
                 Process(block.Records,transform,layer,$"{path}{record.S(5,name)}/",stack,true);
-                if(doc.Entities.Count==before)Skip(record.Kind+" (empty block)");
+                if(Output().Count==before)Skip(record.Kind+" (empty block)");
             }
             finally{stack.Remove(name);}
         }
@@ -116,13 +177,15 @@ public static class DxfReader
             string polyLayer="0",polyHandle="";bool polyClosed=false;
             void Add(DxfEntity entity)
             {
-                if(doc.Entities.Count>=1000000)throw new InvalidDataException("Expanded drawing exceeds one million entities.");
+                if(doc.Entities.Count+doc.Layouts.Sum(l=>l.Entities.Count)>=1000000)throw new InvalidDataException("Expanded drawing exceeds one million entities.");
                 var layer=entity.Layer=="0"?inheritedLayer:entity.Layer;
-                try { doc.Entities.Add(DxfPrimitives.Transform(entity,matrix,layer,path+entity.Handle,annotation)); }
+                try { Output().Add(DxfPrimitives.Transform(entity,matrix,layer,path+entity.Handle,annotation)); }
                 catch(InvalidDataException){Skip(entity.Kind+" (transformed geometry limit)");}
             }
             foreach(var record in records)
             {
+                // Polyline VERTEX/SEQEND records continue the space of their POLYLINE header.
+                if(entitiesPass&&stack.Count==0&&record.Kind is not ("VERTEX" or "SEQEND"))target=record.N(67)!=0?active:null;
                 var p=(Value:record.Kind,Code:0);var fields=record.Fields;
                 string S(int c,string fallback="")=>record.S(c,fallback);
                 double N(int c,double fallback=0)=>record.N(c,fallback);
@@ -213,6 +276,9 @@ public static class DxfReader
                         break;
                     case "INSERT":
                         Expand(record,matrix,inheritedLayer,path,stack,annotation);break;
+                    case "VIEWPORT":
+                        if(stack.Count!=0||target==null){Skip("VIEWPORT (outside paper space)");break;}
+                        ReadViewport(record,target);break;
                     case "DIMENSION": case "ARC_DIMENSION": case "LARGE_RADIAL_DIMENSION":
                         ExpandDimension(record,matrix,inheritedLayer,path,stack);break;
                     case "LINE": curves.Add(Curve.Line(P(10, 20), P(11, 21))); break;
@@ -259,9 +325,21 @@ public static class DxfReader
             }
         }
         Process(entities,System.Windows.Media.Matrix.Identity,"0","",new(StringComparer.OrdinalIgnoreCase));
+        entitiesPass=false;
+        foreach(var (layout,_,block) in layouts)
+        {
+            if(layout==active||!blocks.TryGetValue(block,out var content))continue;
+            target=layout;
+            Process(content.Records,System.Windows.Media.Matrix.Identity,"0","",new(StringComparer.OrdinalIgnoreCase));
+        }
+        target=null;
+        // CAD programs save default layouts (Layout1, Layout2) even when unused. Keep a layout only if it adds
+        // something beyond model space: its own paper-space content, or several viewports arranging the model.
+        doc.Layouts.RemoveAll(l=>!l.Entities.Any(e=>e.Kind!="VIEWPORT")&&l.Viewports.Count<2);
+        var all=doc.Entities.Concat(doc.Layouts.SelectMany(l=>l.Entities)).ToList();
         // Fills are independent and Triangulate is pure; the renderer still concatenates them in entity order.
-        Parallel.ForEach(doc.Entities.Where(e=>e.FillContours.Count>0),e=>e.FillTriangles=DxfPrimitives.Triangulate(e.FillContours));
-        if(doc.Entities.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text, dimensions, multileaders and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
+        Parallel.ForEach(all.Where(e=>e.FillContours.Count>0),e=>e.FillTriangles=DxfPrimitives.Triangulate(e.FillContours));
+        if(all.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text, dimensions, multileaders and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
         return doc;
     }
     private sealed record Record(string Kind,List<Pair> Fields)

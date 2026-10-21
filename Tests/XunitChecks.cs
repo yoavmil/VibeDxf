@@ -60,17 +60,23 @@ public sealed class XunitChecks(ITestOutputHelper output)
  });
 
  [Theory]
- [InlineData("api-cw750-details.dxf",4279,0,"3DSOLID=3,ATTRIB=52,LEADER=11,VIEWPORT=3")]
- [InlineData("uncommon.dxf",147,1,"3D POLYLINE=2,3DSOLID=1,ATTRIB=1,MESH=1,VIEWPORT=2")]
- public void PublicDrawingAndGpuUpload(string file,int expectedEntities,int expectedSplines,string expectedSkipped) => TestSupport.Run($"Public drawing: {file}",()=>
+ [InlineData("api-cw750-details.dxf",4226,0,"3DSOLID=3,ATTRIB=91,LEADER=11,VIEWPORT (3D view)=1","Sheet 1:55/2;Sheet 2:61/1;Sheet 3:62/2;Sheet 4:54/2")]
+ [InlineData("uncommon.dxf",147,1,"3D POLYLINE=2,3DSOLID=1,ATTRIB=1,MESH=1","")]
+ public void PublicDrawingAndGpuUpload(string file,int expectedEntities,int expectedSplines,string expectedSkipped,string expectedLayouts) => TestSupport.Run($"Public drawing: {file}",()=>
  {
   var path=System.IO.Path.Combine(AppContext.BaseDirectory,"Fixtures","Public",file);
   var doc=DxfReader.Load(path);
   output.WriteLine($"Rendered entities: {doc.Entities.Count}; kinds: {string.Join(", ",doc.Entities.GroupBy(e=>e.Kind).Select(g=>$"{g.Key}={g.Count()}"))}");
   output.WriteLine($"Skipped: {string.Join(", ",doc.Skipped.OrderBy(p=>p.Key).Select(p=>$"{p.Key}={p.Value}"))}");
+  // Each layout as name:paper-space entities/viewports, in tab order.
+  var layouts=string.Join(";",doc.Layouts.Select(l=>$"{l.Name}:{l.Entities.Count}/{l.Viewports.Count}"));
+  output.WriteLine($"Layouts: {layouts}");
+  foreach(var layout in doc.Layouts)
+   output.WriteLine($"  {layout.Name}: {string.Join(", ",layout.Entities.GroupBy(e=>e.Kind).Select(g=>$"{g.Key}={g.Count()}"))}");
   Assert.NotNull(doc.UnsupportedWarning);
   foreach(var skipped in doc.Skipped) Assert.Contains($"{skipped.Key}: {skipped.Value:N0}",doc.UnsupportedWarning);
   Assert.Equal(expectedEntities,doc.Entities.Count);
+  Assert.Equal(expectedLayouts,layouts);
   Assert.Equal(expectedSplines,doc.Entities.Count(e=>e.Kind=="SPLINE"));
   Assert.Equal(expectedSkipped,string.Join(",",doc.Skipped.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>$"{p.Key}={p.Value}")));
   TestSupport.Sta(()=>Assert.All(ViewportChecks.BuildCases(path),c=>Assert.True(c.Passed,c.Name)));

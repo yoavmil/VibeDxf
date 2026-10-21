@@ -22,10 +22,17 @@ public partial class MainWindow : Window
                 ? $"Selected {selected[0].Describe(Viewer.FirstStrategy)} • layer {selected[0].Entity.Layer} • handle {selected[0].Entity.Handle}. Select another element to measure."
                 : "Select two elements to measure their distance.";
         };
+        // Tab 0 is model space; tab i shows layout i−1.
+        Viewer.LayoutChanged += () => LayoutTabs.SelectedIndex = Viewer.ActiveLayout + 1;
         PreviewKeyDown += async (_, e) =>
         {
             if (e.Key == Key.O && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; await ChooseFile(); }
             if (e.Key == Key.F) Viewer.Fit();
+            if (e.Key is Key.PageUp or Key.PageDown && Keyboard.Modifiers == ModifierKeys.Control && Viewer.Document != null)
+            {
+                Viewer.ActiveLayout = Math.Clamp(Viewer.ActiveLayout + (e.Key == Key.PageDown ? 1 : -1), -1, Viewer.Document.Layouts.Count - 1);
+                e.Handled = true;
+            }
             if (e.Key == Key.Escape) Viewer.ClearSelection();
         };
         Loaded += async (_, _) =>
@@ -41,6 +48,11 @@ public partial class MainWindow : Window
         Viewer.FirstStrategy = FirstStrategyToggle.IsChecked == true ? MeasurementStrategy.Center : MeasurementStrategy.Closest;
         Viewer.SecondStrategy = SecondStrategyToggle.IsChecked == true ? MeasurementStrategy.Center : MeasurementStrategy.Closest;
     }
+    private void LayoutTabChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (Viewer == null || LayoutTabs.SelectedIndex < 0) return;
+        Viewer.ActiveLayout = LayoutTabs.SelectedIndex - 1;
+    }
     private async void OpenClicked(object sender, RoutedEventArgs e) => await ChooseFile();
     private async Task ChooseFile()
     {
@@ -55,10 +67,14 @@ public partial class MainWindow : Window
         try
         {
             var doc = await Task.Run(() => DxfReader.Load(path));
+            // Fill the tabs first: SetDocument raises LayoutChanged, which selects the matching tab.
+            LayoutTabs.ItemsSource = new[] { "Model" }.Concat(doc.Layouts.Select(l => l.Name)).ToList();
+            LayoutTabs.Visibility = doc.Layouts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             Viewer.SetDocument(doc);
             Title = $"VibeDxf — {Path.GetFileName(path)}";
-            Status.Text = $"{doc.Entities.Count:N0} elements • {doc.Units} • Wheel: zoom • Middle/right drag: pan • Triangle: midpoint • Shift+click: whole element • F: fit • Esc: clear";
-            if(doc.Entities.Any(e=>e.Text!=null)) Status.Text += " • Text font: Arial substitute";
+            var layouts = doc.Layouts.Count > 0 ? $" • {doc.Layouts.Count} layout{(doc.Layouts.Count == 1 ? "" : "s")} (Ctrl+PgUp/PgDn)" : "";
+            Status.Text = $"{doc.Entities.Count:N0} elements{layouts} • {doc.Units} • Wheel: zoom • Middle/right drag: pan • Triangle: midpoint • Shift+click: whole element • F: fit • Esc: clear";
+            if(doc.Entities.Concat(doc.Layouts.SelectMany(l => l.Entities)).Any(e=>e.Text!=null)) Status.Text += " • Text font: Arial substitute";
             if (doc.UnsupportedWarning is { } warning)
             {
                 Status.Text += doc.Skipped.Count>0 ? " • WARNING: incomplete drawing • Skipped: " + string.Join(", ", doc.Skipped.Select(p => $"{p.Key} ({p.Value})")) : " • WARNING: some text formatting is approximated";

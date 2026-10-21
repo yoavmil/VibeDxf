@@ -16,6 +16,24 @@
     <Trigger Property="IsChecked" Value="True"><Setter Property="Content" Value="Center"/></Trigger>
    </Style.Triggers>
   </Style>
+  <Style x:Key="LayoutTab" TargetType="ListBoxItem">
+   <Setter Property="Padding" Value="16,5"/>
+   <Setter Property="Margin" Value="0,0,2,0"/>
+   <Setter Property="Foreground" Value="#DCE5EF"/>
+   <Setter Property="Background" Value="#202C39"/>
+   <Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="ListBoxItem">
+      <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}"><ContentPresenter/></Border>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+   <Style.Triggers>
+    <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#2C3B4B"/></Trigger>
+    <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#CBD7E3"/><Setter Property="Foreground" Value="#18212B"/></Trigger>
+   </Style.Triggers>
+  </Style>
  </Window.Resources>
  <DockPanel>
   <Menu DockPanel.Dock="Top" Background="#CBD7E3" Foreground="#18212B" Padding="8,5">
@@ -42,6 +60,13 @@
     </StackPanel>
    </Grid>
   </Border>
+  <!-- AutoCAD-style sheet tabs: Model plus one tab per paper layout. Hidden for drawings without layouts. -->
+  <ListBox x:Name="LayoutTabs" DockPanel.Dock="Bottom" Visibility="Collapsed" SelectionChanged="LayoutTabChanged"
+   Background="#18212B" BorderThickness="0" Padding="8,3" ItemContainerStyle="{StaticResource LayoutTab}"
+   ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+   AutomationProperties.Name="Model and layout tabs">
+   <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ListBox.ItemsPanel>
+  </ListBox>
   <local:DxfViewport x:Name="Viewer"/>
  </DockPanel>
 </Window>

@@ -41,6 +41,24 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     private MeasurementTarget? hoveredMidpoint;
     private readonly List<MeasurementTarget> selected = [];
     public DxfDocument? Document { get; private set; }
+    private int activeLayout = -1;
+    /// <summary>
+    /// −1 shows model space; otherwise the index into <see cref="DxfDocument.Layouts"/>. Switching only changes the
+    /// camera, picking and draw ranges; GPU geometry is uploaded once per document.
+    /// </summary>
+    public int ActiveLayout
+    {
+        get => activeLayout;
+        set
+        {
+            if (Document == null || value == activeLayout || value < -1 || value >= Document.Layouts.Count) return;
+            activeLayout = value; ApplyLayout();
+        }
+    }
+    public event Action? LayoutChanged;
+    private DxfLayout? Layout => Document != null && activeLayout >= 0 ? Document.Layouts[activeLayout] : null;
+    // Layout picking covers that layout's paper-space entities only; model content inside viewports is display-only.
+    private IReadOnlyList<DxfEntity> ActiveEntities => Layout?.Entities ?? Document?.Entities ?? [];
     public IReadOnlyList<MeasurementTarget> Selected => selected;
     public ClosestPair? Measurement { get; private set; }
     private MeasurementStrategy firstStrategy, secondStrategy;
@@ -73,15 +91,27 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     }
     public void SetDocument(DxfDocument doc)
     {
-        Document = doc; bounds = doc.Bounds;
-        midpointIndex = new MidpointIndex(doc.Entities);
-        host.Renderer?.SetDrawing(doc.Entities, Center(bounds));
-        ClearSelection(); Fit();
+        Document = doc;
+        activeLayout = doc.Entities.Count == 0 && doc.Layouts.Count > 0 ? 0 : -1;
+        Upload();
+        ApplyLayout();
+    }
+    private void ApplyLayout()
+    {
+        bounds = Layout?.Bounds ?? Document!.Bounds;
+        midpointIndex = new MidpointIndex(ActiveEntities);
+        ClearSelection(); Fit(); LayoutChanged?.Invoke();
+    }
+    private void Upload()
+    {
+        if (Document is { } doc)
+            host.Renderer?.SetDrawing(doc.Entities, Center(doc.Bounds),
+                [.. doc.Layouts.Select(l => ((IEnumerable<DxfEntity>)l.Entities, Center(l.Bounds)))]);
     }
     private static Point Center(Rect r) => r.IsEmpty ? default : new Point(r.Left + r.Width / 2, r.Top + r.Height / 2);
     internal void RendererCreated()
     {
-        if (Document != null) host.Renderer!.SetDrawing(Document.Entities, Center(bounds));
+        Upload();
         Invalidate();
     }
     public void Fit()
@@ -115,7 +145,8 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         renderQueued = false;
         if (host.Renderer is not { } renderer) return;
         var (w, h) = host.PixelSize;
-        renderer.Render(w, h, VisualTreeHelper.GetDpi(this).DpiScaleX, scale, offset, BackColor, LineColor, DrawOverlay);
+        renderer.Render(w, h, VisualTreeHelper.GetDpi(this).DpiScaleX, scale, offset, BackColor, LineColor, DrawOverlay,
+            activeLayout, Layout?.Viewports);
     }
 
     private void DrawOverlay(ID2D1DeviceContext dc)
@@ -288,7 +319,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         if (target == null)
         {
             double nearest = 7 / scale;
-            foreach (var entity in Document.Entities)
+            foreach (var entity in ActiveEntities)
             {
                 if (entity.IsAnnotation) continue;
                 var b = entity.Bounds; b.Inflate(nearest, nearest);

@@ -14,12 +14,16 @@ namespace VibeDxf;
 /// <summary>
 /// Draws the whole drawing with Direct3D 11 from GPU buffers uploaded once per document;
 /// a camera change only rewrites one constant buffer. Overlays are drawn with Direct2D on the same back buffer.
+/// Model and paper (layout) geometry share the buffers as separate ranges; layout viewports
+/// re-draw the model range through their own transform, clipped with a scissor rectangle.
 /// </summary>
 public sealed class DrawingRenderer : IDisposable
 {
     private const string ShaderSource = """
-        cbuffer Camera : register(b0) { float4 xform; float4 color; float segments; float3 pad; };
-        float4 Project(float2 p) { return float4(p * xform.xy + xform.zw, 0, 1); }
+        cbuffer Camera : register(b0) { float4 row0; float4 row1; float4 color; float segments; float3 pad; };
+        // Affine world-to-NDC transform; layout viewports add rotation (view twist) to the plain camera.
+        float2 Linear(float2 v) { return float2(dot(row0.xy, v), dot(row1.xy, v)); }
+        float4 Project(float2 p) { return float4(Linear(p) + float2(row0.z, row1.z), 0, 1); }
         float4 LineVS(float2 p : POSITION) : SV_Position { return Project(p); }
         float4 PointVS(float2 p : POSITION, uint id : SV_VertexID) : SV_Position
         {
@@ -34,7 +38,7 @@ public sealed class DrawingRenderer : IDisposable
         // Rays/xlines: extend ±3 NDC around the point nearest the screen centre; the rasterizer clips the rest.
         float4 RayVS(float2 origin : ORIGIN, float2 direction : DIRECTION, float infinite : KIND, uint id : SV_VertexID) : SV_Position
         {
-            float2 b = Project(origin).xy; float2 d = normalize(direction * xform.xy);
+            float2 b = Project(origin).xy; float2 d = normalize(Linear(direction));
             float s0 = -dot(b, d); float s = s0 + (id == 0 ? -3 : 3);
             if (infinite == 0) s = max(s, 0);
             return float4(b + d * s, 0, 1);
@@ -42,13 +46,16 @@ public sealed class DrawingRenderer : IDisposable
         float4 PS() : SV_Target { return color; }
         """;
     [StructLayout(LayoutKind.Sequential)]
-    private struct Constants { public Vector4 Transform; public Vector4 Color; public float Segments; public Vector3 Pad; }
+    private struct Constants { public Vector4 Row0; public Vector4 Row1; public Vector4 Color; public float Segments; public Vector3 Pad; }
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct ArcInstance(Vector2 Center, float Radius, float Start, float Sweep);
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct RayInstance(Vector2 Origin, Vector2 Direction, float Infinite);
     // Arcs are sorted by radius and drawn per power-of-two radius bucket, each with just enough segments.
     private readonly record struct ArcBucket(int Start, int Count, double MaxRadius);
+    private readonly record struct Range(int Start, int Count);
+    // One uploaded space (model or paper): its float origin and its ranges in the shared buffers.
+    private sealed record Part(System.Windows.Point Origin, Range Lines, Range Fills, Range Points, Range Dots, Range Rays, ArcBucket[] Buckets);
 
     private readonly ID3D11Device device;
     private readonly ID3D11DeviceContext context;
@@ -57,7 +64,7 @@ public sealed class DrawingRenderer : IDisposable
     private readonly ID3D11PixelShader pixelShader;
     private readonly ID3D11InputLayout lineLayout, arcLayout, rayLayout;
     private readonly ID3D11Buffer constantBuffer;
-    private readonly ID3D11RasterizerState rasterizer;
+    private readonly ID3D11RasterizerState rasterizer, scissorRasterizer;
     private readonly ID3D11BlendState blend;
     private readonly D2D.ID2D1Factory1 d2dFactory;
     private readonly D2D.ID2D1DeviceContext d2d;
@@ -65,8 +72,11 @@ public sealed class DrawingRenderer : IDisposable
     private ID3D11RenderTargetView? renderTarget;
     private D2D.ID2D1Bitmap1? d2dTarget;
     private ID3D11Buffer? lineBuffer, arcBuffer, fillBuffer, pointBuffer, dotBuffer, rayBuffer;
+    // Model-space counts and buckets; each layout's paper part follows the model ranges in every buffer.
     private int lineVertexCount,fillVertexCount,pointVertexCount,dotVertexCount,rayInstanceCount;
     private ArcBucket[] buckets = [];
+    private Part? model;
+    private Part[] papers = [];
     private int width, height;
     /// <summary>World origin subtracted before converting to float, so large DXF coordinates keep precision.</summary>
     public System.Windows.Point Origin { get; private set; }
@@ -113,6 +123,7 @@ public sealed class DrawingRenderer : IDisposable
         constantBuffer = device.CreateBuffer(new BufferDescription((uint)Marshal.SizeOf<Constants>(), BindFlags.ConstantBuffer, ResourceUsage.Dynamic, CpuAccessFlags.Write));
         // Alpha-blended antialiased lines; MSAA is not available on flip-model swap chains.
         rasterizer = device.CreateRasterizerState(new RasterizerDescription(CullMode.None, FillMode.Solid) { AntialiasedLineEnable = true });
+        scissorRasterizer = device.CreateRasterizerState(new RasterizerDescription(CullMode.None, FillMode.Solid) { AntialiasedLineEnable = true, ScissorEnable = true });
         blend = device.CreateBlendState(BlendDescription.NonPremultiplied);
 
         d2dFactory = D2D.D2D1.D2D1CreateFactory<D2D.ID2D1Factory1>();
@@ -124,42 +135,50 @@ public sealed class DrawingRenderer : IDisposable
 
     public void SetDrawing(IEnumerable<Curve> curves, System.Windows.Point origin) => SetDrawing([new DxfEntity("LINE","0","",curves.ToList())],origin);
 
-    public void SetDrawing(IEnumerable<DxfEntity> drawing, System.Windows.Point origin)
+    public void SetDrawing(IEnumerable<DxfEntity> drawing, System.Windows.Point origin) => SetDrawing(drawing, origin, []);
+
+    /// <summary>Uploads model space and every paper layout once; each keeps its own float origin for precision.</summary>
+    public void SetDrawing(IEnumerable<DxfEntity> modelEntities, System.Windows.Point origin,
+        IReadOnlyList<(IEnumerable<DxfEntity> Entities, System.Windows.Point Origin)> layouts)
     {
         Origin = origin;
         var lines = new List<Vector2>();
         var arcs = new List<ArcInstance>();
         var rays = new List<RayInstance>();
-        Vector2 F(System.Windows.Point p) => new((float)(p.X - origin.X), (float)(p.Y - origin.Y));
-        var entities=drawing.ToArray();
-        foreach (var c in entities.Where(e=>e.Kind!="POINT").SelectMany(e=>e.RenderCurves??e.Curves))
-            if (c.IsUnbounded) rays.Add(new RayInstance(F(c.Start), new((float)(c.End.X - c.Start.X), (float)(c.End.Y - c.Start.Y)), c.Extent == LineExtent.Infinite ? 1 : 0));
-            else if (c.IsLine) { lines.Add(F(c.Start)); lines.Add(F(c.End)); }
-            else arcs.Add(new ArcInstance(F(c.Center), (float)c.Radius, (float)c.Angle, (float)c.Sweep));
-        arcs.Sort((a, b) => a.Radius.CompareTo(b.Radius));
-        var bucketList = new List<ArcBucket>();
-        for (int i = 0; i < arcs.Count;)
+        var dots = new List<Vector2>();
+        var triangles = new List<Vector2>();
+        var points = new List<Vector2>();
+        Part Collect(DxfEntity[] entities, System.Windows.Point o)
         {
-            var key = Math.ILogB(arcs[i].Radius); int start = i;
-            while (i < arcs.Count && Math.ILogB(arcs[i].Radius) == key) i++;
-            bucketList.Add(new ArcBucket(start, i - start, arcs[i - 1].Radius));
+            int l = lines.Count, a = arcs.Count, r = rays.Count, d = dots.Count, f = triangles.Count, p = points.Count;
+            Vector2 F(System.Windows.Point q) => new((float)(q.X - o.X), (float)(q.Y - o.Y));
+            foreach (var c in entities.Where(e=>e.Kind!="POINT").SelectMany(e=>e.RenderCurves??e.Curves))
+                if (c.IsUnbounded) rays.Add(new RayInstance(F(c.Start), new((float)(c.End.X - c.Start.X), (float)(c.End.Y - c.Start.Y)), c.Extent == LineExtent.Infinite ? 1 : 0));
+                else if (c.IsLine) { lines.Add(F(c.Start)); lines.Add(F(c.End)); }
+                else arcs.Add(new ArcInstance(F(c.Center), (float)c.Radius, (float)c.Angle, (float)c.Sweep));
+            arcs.Sort(a, arcs.Count - a, Comparer<ArcInstance>.Create((x, y) => x.Radius.CompareTo(y.Radius)));
+            var bucketList = new List<ArcBucket>();
+            for (int i = a; i < arcs.Count;)
+            {
+                var key = Math.ILogB(arcs[i].Radius); int start = i;
+                while (i < arcs.Count && Math.ILogB(arcs[i].Radius) == key) i++;
+                bucketList.Add(new ArcBucket(start, i - start, arcs[i - 1].Radius));
+            }
+            dots.AddRange(entities.SelectMany(e=>e.RenderDots).SelectMany(q=>Enumerable.Repeat(F(q),4)));
+            triangles.AddRange(entities.SelectMany(e=>e.FillTriangles??DxfPrimitives.Triangulate(e.FillContours)).Select(F));
+            points.AddRange(entities.Where(e=>e.Kind=="POINT").SelectMany(e=>Enumerable.Repeat(F(e.Curves[0].Start),4)));
+            return new Part(o, new(l, lines.Count - l), new(f, triangles.Count - f), new(p, points.Count - p), new(d, dots.Count - d),
+                new(r, rays.Count - r), [.. bucketList]);
         }
-        lineBuffer?.Dispose(); arcBuffer?.Dispose(); lineBuffer = arcBuffer = null;
-        if (lines.Count > 0) lineBuffer = device.CreateBuffer(CollectionsMarshal.AsSpan(lines), BindFlags.VertexBuffer, ResourceUsage.Immutable);
-        if (arcs.Count > 0) arcBuffer = device.CreateBuffer(CollectionsMarshal.AsSpan(arcs), BindFlags.VertexBuffer, ResourceUsage.Immutable);
-        lineVertexCount = lines.Count;
-        buckets = [.. bucketList];
-        rayBuffer?.Dispose(); rayBuffer = null; rayInstanceCount = rays.Count;
-        if (rays.Count > 0) rayBuffer = device.CreateBuffer(CollectionsMarshal.AsSpan(rays), BindFlags.VertexBuffer, ResourceUsage.Immutable);
-        var dots=entities.SelectMany(e=>e.RenderDots).SelectMany(p=>Enumerable.Repeat(F(p),4)).ToArray();
-        dotBuffer?.Dispose();dotBuffer=null;dotVertexCount=dots.Length;
-        if(dots.Length>0)dotBuffer=device.CreateBuffer(dots.AsSpan(),BindFlags.VertexBuffer,ResourceUsage.Immutable);
-        var triangles=entities.SelectMany(e=>e.FillTriangles??DxfPrimitives.Triangulate(e.FillContours)).Select(F).ToArray();
-        var points=entities.Where(e=>e.Kind=="POINT").SelectMany(e=>Enumerable.Repeat(F(e.Curves[0].Start),4)).ToArray();
-        fillBuffer?.Dispose();pointBuffer?.Dispose();fillBuffer=pointBuffer=null;
-        fillVertexCount=triangles.Length;pointVertexCount=points.Length;
-        if(triangles.Length>0)fillBuffer=device.CreateBuffer(triangles.AsSpan(),BindFlags.VertexBuffer,ResourceUsage.Immutable);
-        if(points.Length>0)pointBuffer=device.CreateBuffer(points.AsSpan(),BindFlags.VertexBuffer,ResourceUsage.Immutable);
+        model = Collect(modelEntities.ToArray(), origin);
+        papers = [.. layouts.Select(l => Collect(l.Entities.ToArray(), l.Origin))];
+        ID3D11Buffer? Upload<T>(List<T> data) where T : unmanaged =>
+            data.Count == 0 ? null : device.CreateBuffer(CollectionsMarshal.AsSpan(data), BindFlags.VertexBuffer, ResourceUsage.Immutable);
+        foreach (var old in new[] { lineBuffer, arcBuffer, rayBuffer, dotBuffer, fillBuffer, pointBuffer }) old?.Dispose();
+        lineBuffer = Upload(lines); arcBuffer = Upload(arcs); rayBuffer = Upload(rays);
+        dotBuffer = Upload(dots); fillBuffer = Upload(triangles); pointBuffer = Upload(points);
+        lineVertexCount = model.Lines.Count; rayInstanceCount = model.Rays.Count; dotVertexCount = model.Dots.Count;
+        fillVertexCount = model.Fills.Count; pointVertexCount = model.Points.Count; buckets = model.Buckets;
     }
 
     private void CreateTargets()
@@ -182,86 +201,43 @@ public sealed class DrawingRenderer : IDisposable
     }
 
     /// <summary>
-    /// Renders one frame. The camera maps world (x, y) to DIP screen (xÂ·scale + offset.X, âˆ’yÂ·scale + offset.Y);
-    /// <paramref name="overlay"/> then draws on the Direct2D context in DIPs.
+    /// Renders one frame. The camera maps world (x, y) to DIP screen (x*scale + offset.X, -y*scale + offset.Y);
+    /// <paramref name="overlay"/> then draws on the Direct2D context in DIPs. With a <paramref name="layout"/> index
+    /// the frame shows that layout: each viewport's model view clipped to its window, then its paper space on top.
     /// </summary>
     public void Render(int pixelWidth, int pixelHeight, double dipScale, double scale, System.Windows.Vector offset,
-        Color4 background, Color4 lineColor, Action<D2D.ID2D1DeviceContext> overlay)
+        Color4 background, Color4 lineColor, Action<D2D.ID2D1DeviceContext> overlay,
+        int layout = -1, IReadOnlyList<DxfViewportWindow>? viewports = null)
     {
         if (pixelWidth < 1 || pixelHeight < 1) return;
         Resize(pixelWidth, pixelHeight);
         context.ClearRenderTargetView(renderTarget!, background);
-        if (lineBuffer != null || arcBuffer != null || fillBuffer != null || pointBuffer != null || dotBuffer != null || rayBuffer != null)
+        var paper = layout >= 0 && layout < papers.Length ? papers[layout] : null;
+        if (model != null)
         {
             context.OMSetRenderTargets(renderTarget!);
             context.RSSetViewport(0, 0, width, height);
-            context.RSSetState(rasterizer);
             context.OMSetBlendState(blend);
             context.PSSetShader(pixelShader);
             context.VSSetConstantBuffer(0, constantBuffer);
             context.PSSetConstantBuffer(0, constantBuffer);
-            double w = width / dipScale, h = height / dipScale;
-            var constants = new Constants
+            var camera = new System.Windows.Media.Matrix(scale, 0, 0, -scale, offset.X, offset.Y);
+            if (paper == null) { context.RSSetState(rasterizer); Draw(model, camera, dipScale, lineColor); }
+            else
             {
-                Transform = new Vector4((float)(2 * scale / w), (float)(2 * scale / h),
-                    (float)(2 * (Origin.X * scale + offset.X) / w - 1), (float)(1 - 2 * (offset.Y - Origin.Y * scale) / h)),
-                Color = lineColor,
-                Pad = new Vector3((float)(8/w),(float)(8/h),0),
-            };
-            if(fillBuffer!=null)
-            {
-                SetConstants(constants);context.IASetInputLayout(lineLayout);
-                context.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
-                context.IASetVertexBuffer(0,fillBuffer,(uint)Marshal.SizeOf<Vector2>());
-                context.VSSetShader(lineShader);context.Draw((uint)fillVertexCount,0);
-            }
-            if(dotBuffer!=null)
-            {
-                var dotsConstants=constants;dotsConstants.Pad*=0.2f;SetConstants(dotsConstants);
-                context.IASetInputLayout(lineLayout);context.IASetPrimitiveTopology(PrimitiveTopology.LineList);
-                context.IASetVertexBuffer(0,dotBuffer,(uint)Marshal.SizeOf<Vector2>());
-                context.VSSetShader(pointShader);context.Draw((uint)dotVertexCount,0);
-            }
-            if(pointBuffer!=null)
-            {
-                SetConstants(constants);context.IASetInputLayout(lineLayout);
-                context.IASetPrimitiveTopology(PrimitiveTopology.LineList);
-                context.IASetVertexBuffer(0,pointBuffer,(uint)Marshal.SizeOf<Vector2>());
-                context.VSSetShader(pointShader);context.Draw((uint)pointVertexCount,0);
-            }
-            if (lineBuffer != null)
-            {
-                SetConstants(constants);
-                context.IASetInputLayout(lineLayout);
-                context.IASetPrimitiveTopology(PrimitiveTopology.LineList);
-                context.IASetVertexBuffer(0, lineBuffer, (uint)Marshal.SizeOf<Vector2>());
-                context.VSSetShader(lineShader);
-                context.Draw((uint)lineVertexCount, 0);
-            }
-            if (rayBuffer != null)
-            {
-                SetConstants(constants);
-                context.IASetInputLayout(rayLayout);
-                context.IASetPrimitiveTopology(PrimitiveTopology.LineList);
-                context.IASetVertexBuffer(0, rayBuffer, (uint)Marshal.SizeOf<RayInstance>());
-                context.VSSetShader(rayShader);
-                context.DrawInstanced(2, (uint)rayInstanceCount, 0, 0);
-            }
-            if (arcBuffer != null)
-            {
-                context.IASetInputLayout(arcLayout);
-                context.IASetPrimitiveTopology(PrimitiveTopology.LineStrip);
-                context.IASetVertexBuffer(0, arcBuffer, (uint)Marshal.SizeOf<ArcInstance>());
-                context.VSSetShader(arcShader);
-                foreach (var bucket in buckets)
+                context.RSSetState(scissorRasterizer);
+                foreach (var viewport in viewports ?? [])
                 {
-                    // Segment count per full turn that keeps the chord error under ~Â¼ pixel for the bucket's largest arc.
-                    var radiusPx = bucket.MaxRadius * scale * dipScale;
-                    var step = 2 * Math.Acos(Math.Max(-1, 1 - 0.25 / Math.Max(radiusPx, 1e-9)));
-                    constants.Segments = (float)Math.Clamp(Math.Ceiling(Math.Tau / step), 8, 1024);
-                    SetConstants(constants);
-                    context.DrawInstanced((uint)constants.Segments + 1, (uint)bucket.Count, 0, (uint)bucket.Start);
+                    var a = camera.Transform(viewport.Paper.TopLeft); var b = camera.Transform(viewport.Paper.BottomRight);
+                    int Clamp(double v, int max) => (int)Math.Clamp(Math.Round(v * dipScale), 0, max);
+                    int left = Clamp(Math.Min(a.X, b.X), width), right = Clamp(Math.Max(a.X, b.X), width);
+                    int top = Clamp(Math.Min(a.Y, b.Y), height), bottom = Clamp(Math.Max(a.Y, b.Y), height);
+                    if (right <= left || bottom <= top) continue;
+                    context.RSSetScissorRect(new Vortice.RawRect(left, top, right, bottom));
+                    Draw(model, viewport.ModelToPaper * camera, dipScale, lineColor);
                 }
+                context.RSSetState(rasterizer);
+                Draw(paper, camera, dipScale, lineColor);
             }
         }
         d2d.SetDpi(96 * (float)dipScale, 96 * (float)dipScale);
@@ -270,6 +246,79 @@ public sealed class DrawingRenderer : IDisposable
         d2d.EndDraw();
         FrameRendered?.Invoke();
         swapChain.Present(1, PresentFlags.None);
+    }
+
+    /// <summary>Draws one uploaded space through an affine world-to-DIP transform.</summary>
+    private void Draw(Part part, System.Windows.Media.Matrix worldToDip, double dipScale, Color4 lineColor)
+    {
+        double w = width / dipScale, h = height / dipScale;
+        var m = worldToDip; var o = part.Origin;
+        // Vertices are relative to the part origin; fold it into the translation in double precision.
+        double cx = o.X * m.M11 + o.Y * m.M21 + m.OffsetX, cy = o.X * m.M12 + o.Y * m.M22 + m.OffsetY;
+        var constants = new Constants
+        {
+            Row0 = new Vector4((float)(2 * m.M11 / w), (float)(2 * m.M21 / w), (float)(2 * cx / w - 1), 0),
+            Row1 = new Vector4((float)(-2 * m.M12 / h), (float)(-2 * m.M22 / h), (float)(1 - 2 * cy / h), 0),
+            Color = lineColor,
+            Pad = new Vector3((float)(8/w),(float)(8/h),0),
+        };
+        var stride = (uint)Marshal.SizeOf<Vector2>();
+        if(fillBuffer!=null&&part.Fills.Count>0)
+        {
+            SetConstants(constants);context.IASetInputLayout(lineLayout);
+            context.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
+            context.IASetVertexBuffer(0,fillBuffer,stride);
+            context.VSSetShader(lineShader);context.Draw((uint)part.Fills.Count,(uint)part.Fills.Start);
+        }
+        if(dotBuffer!=null&&part.Dots.Count>0)
+        {
+            var dotsConstants=constants;dotsConstants.Pad*=0.2f;SetConstants(dotsConstants);
+            context.IASetInputLayout(lineLayout);context.IASetPrimitiveTopology(PrimitiveTopology.LineList);
+            context.IASetVertexBuffer(0,dotBuffer,stride);
+            context.VSSetShader(pointShader);context.Draw((uint)part.Dots.Count,(uint)part.Dots.Start);
+        }
+        if(pointBuffer!=null&&part.Points.Count>0)
+        {
+            SetConstants(constants);context.IASetInputLayout(lineLayout);
+            context.IASetPrimitiveTopology(PrimitiveTopology.LineList);
+            context.IASetVertexBuffer(0,pointBuffer,stride);
+            context.VSSetShader(pointShader);context.Draw((uint)part.Points.Count,(uint)part.Points.Start);
+        }
+        if (lineBuffer != null && part.Lines.Count > 0)
+        {
+            SetConstants(constants);
+            context.IASetInputLayout(lineLayout);
+            context.IASetPrimitiveTopology(PrimitiveTopology.LineList);
+            context.IASetVertexBuffer(0, lineBuffer, stride);
+            context.VSSetShader(lineShader);
+            context.Draw((uint)part.Lines.Count, (uint)part.Lines.Start);
+        }
+        if (rayBuffer != null && part.Rays.Count > 0)
+        {
+            SetConstants(constants);
+            context.IASetInputLayout(rayLayout);
+            context.IASetPrimitiveTopology(PrimitiveTopology.LineList);
+            context.IASetVertexBuffer(0, rayBuffer, (uint)Marshal.SizeOf<RayInstance>());
+            context.VSSetShader(rayShader);
+            context.DrawInstanced(2, (uint)part.Rays.Count, 0, (uint)part.Rays.Start);
+        }
+        if (arcBuffer != null && part.Buckets.Length > 0)
+        {
+            context.IASetInputLayout(arcLayout);
+            context.IASetPrimitiveTopology(PrimitiveTopology.LineStrip);
+            context.IASetVertexBuffer(0, arcBuffer, (uint)Marshal.SizeOf<ArcInstance>());
+            context.VSSetShader(arcShader);
+            var linearScale = Math.Sqrt(Math.Abs(m.Determinant));
+            foreach (var bucket in part.Buckets)
+            {
+                // Segment count per full turn that keeps the chord error under ~1/4 pixel for the bucket's largest arc.
+                var radiusPx = bucket.MaxRadius * linearScale * dipScale;
+                var step = 2 * Math.Acos(Math.Max(-1, 1 - 0.25 / Math.Max(radiusPx, 1e-9)));
+                constants.Segments = (float)Math.Clamp(Math.Ceiling(Math.Tau / step), 8, 1024);
+                SetConstants(constants);
+                context.DrawInstanced((uint)constants.Segments + 1, (uint)bucket.Count, 0, (uint)bucket.Start);
+            }
+        }
     }
 
     private unsafe void SetConstants(in Constants constants)
@@ -283,7 +332,7 @@ public sealed class DrawingRenderer : IDisposable
     {
         d2d.Target = null;
         foreach (IDisposable? d in new IDisposable?[] { d2dTarget, renderTarget, lineBuffer, arcBuffer, fillBuffer, pointBuffer, dotBuffer, rayBuffer, pointShader, rayShader, dwrite, d2d, d2dFactory,
-            blend, rasterizer, constantBuffer, rayLayout, arcLayout, lineLayout, pixelShader, arcShader, lineShader, swapChain, context, device })
+            blend, rasterizer, scissorRasterizer, constantBuffer, rayLayout, arcLayout, lineLayout, pixelShader, arcShader, lineShader, swapChain, context, device })
             d?.Dispose();
     }
 }
