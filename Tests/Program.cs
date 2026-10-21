@@ -2,10 +2,14 @@ using System.Windows;
 using System.Diagnostics;
 using System.IO;
 using VibeDxf;
+using var visualReport = VisualReport.Start();
+try
+{
 int count = 0;
 void Check(string name, Curve a, Curve b, double expected)
 {
     var actual = Curve.Distance(a, b);
+    VisualReport.Drawing(name,[a],[b],actual);
     if (Math.Abs(actual.Distance - expected) > 1e-8) throw new Exception($"{name}: expected {expected}, got {actual.Distance}");
     var reverse = Curve.Distance(b, a);
     if (Math.Abs(reverse.Distance - expected) > 1e-8) throw new Exception($"{name}: symmetry failed");
@@ -63,17 +67,25 @@ try
     Console.WriteLine("PASS parser units, metadata and bulge"); count++;
 }
 finally { File.Delete(fixture); }
-if (args.Length > 0)
+if (args.Length > 0 && args[0] != "--spline-sample")
 {
     var sw = Stopwatch.StartNew(); var doc = DxfReader.Load(args[0]);
     if (doc.Entities.Count != 66377 || doc.Skipped.Count > 0) throw new Exception($"Unexpected sample contents: {doc.Entities.Count} entities; {string.Join(",",doc.Skipped.Keys)}");
     Console.WriteLine($"PASS sample: {doc.Entities.Count:N0} entities in {sw.ElapsedMilliseconds} ms; bounds={doc.Bounds}; units={doc.Units}"); count++;
 }
 Exception? viewportError = null;
+count += MeasurementStrategyChecks.Run();
+count += SplineChecks.Run(args.Length==2 && args[0]=="--spline-sample" ? args[1] : null);
 var viewportCount = 0;
-var viewportThread = new Thread(() => { try { viewportCount = ViewportChecks.Run(); } catch (Exception e) { viewportError = e; } });
+var viewportThread = new Thread(() => { try { viewportCount = ViewportChecks.Run(args.Length==2 && args[0]=="--spline-sample" ? args[1] : null); } catch (Exception e) { viewportError = e; } });
 viewportThread.SetApartmentState(ApartmentState.STA); viewportThread.Start(); viewportThread.Join();
 if (viewportError != null) throw new Exception("Viewport checks failed", viewportError);
 count += viewportCount;
 Console.WriteLine($"{count} checks passed.");
+}
+catch(Exception ex)
+{
+    Console.Error.WriteLine("FAIL " + ex);
+    Environment.ExitCode = 1;
+}
 
