@@ -191,13 +191,13 @@ public static class DxfReader
                 double N(int c,double fallback=0)=>record.N(c,fallback);
                 Point P(int x,int y)=>new(N(x),N(y));
                 // OCS parallel to XY is supported, including a reversed normal. General 3D is intentionally excluded.
-                if(record.Kind is "HATCH" or "POINT" or "SOLID" or "TEXT" or "INSERT" or "ATTDEF" or "CIRCLE" or "ARC" or "LWPOLYLINE" or "DIMENSION" or "ARC_DIMENSION" or "LARGE_RADIAL_DIMENSION")
+                if(record.Kind is "HATCH" or "POINT" or "SOLID" or "TEXT" or "INSERT" or "ATTDEF" or "ATTRIB" or "CIRCLE" or "ARC" or "LWPOLYLINE" or "DIMENSION" or "ARC_DIMENSION" or "LARGE_RADIAL_DIMENSION")
                 {
                     if(Math.Abs(N(210))>1e-9||Math.Abs(N(220))>1e-9||Math.Abs(Math.Abs(N(230,1))-1)>1e-9)
                     {Skip(record.Kind+" (3D extrusion)");continue;}
                 }
                 var originalMatrix=matrix;
-                if(record.Kind is "HATCH" or "SOLID" or "TEXT" or "ATTDEF" or "CIRCLE" or "ARC" or "LWPOLYLINE" && N(230,1)<0)
+                if(record.Kind is "HATCH" or "SOLID" or "TEXT" or "ATTDEF" or "ATTRIB" or "CIRCLE" or "ARC" or "LWPOLYLINE" && N(230,1)<0)
                 {var mirror=new System.Windows.Media.Matrix(-1,0,0,1,0,0);mirror.Append(matrix);matrix=mirror;}
                 var curves = new List<Curve>();
                 List<Point[]> fill=[];string? text=null;
@@ -274,6 +274,17 @@ public static class DxfReader
                             curves=DxfPrimitives.Outline(fill);text=S(1);
                         }
                         break;
+                    case "ATTRIB":
+                        // Attribute values follow their INSERT in the insert's own coordinate system; invisible ones are not drawn.
+                        if(((int)N(70)&1)!=0)break;
+                        try
+                        {
+                            text=S(1);
+                            fill=DxfPrimitives.Text(text,N(40),N(41,1),N(51),(int)N(71),(int)N(72),(int)N(74),P(10,20),P(11,21),N(50));
+                            curves=DxfPrimitives.Outline(fill);
+                        }
+                        catch(Exception ex) when(ex is ArgumentException or InvalidDataException){Skip("ATTRIB (invalid or unsupported)");}
+                        break;
                     case "INSERT":
                         Expand(record,matrix,inheritedLayer,path,stack,annotation);break;
                     case "VIEWPORT":
@@ -319,7 +330,7 @@ public static class DxfReader
                     case "SECTION": case "ENDSEC": break;
                     default: doc.Skipped[p.Value] = doc.Skipped.GetValueOrDefault(p.Value) + 1; break;
                 }
-                if (curves.Count > 0) Add(new DxfEntity(p.Value,S(8,"0"),S(5),curves){FillContours=fill,Text=text,IsApproximate=p.Value is "SPLINE" or "TEXT" or "ATTDEF"});
+                if (curves.Count > 0) Add(new DxfEntity(p.Value,S(8,"0"),S(5),curves){FillContours=fill,Text=text,IsApproximate=p.Value is "SPLINE" or "TEXT" or "ATTDEF" or "ATTRIB"});
 
                 matrix=originalMatrix;
             }
@@ -339,7 +350,7 @@ public static class DxfReader
         var all=doc.Entities.Concat(doc.Layouts.SelectMany(l=>l.Entities)).ToList();
         // Fills are independent and Triangulate is pure; the renderer still concatenates them in entity order.
         Parallel.ForEach(all.Where(e=>e.FillContours.Count>0),e=>e.FillTriangles=DxfPrimitives.Triangulate(e.FillContours));
-        if(all.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text, dimensions, multileaders and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
+        if(all.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text, attributes, dimensions, multileaders and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
         return doc;
     }
     private sealed record Record(string Kind,List<Pair> Fields)

@@ -36,7 +36,7 @@ Hatches support solid fills, stored line patterns with dashes/dots, holes and is
 
 Dimensions (linear, aligned, angular, radial, diameter, ordinate, arc length and jogged radius) are drawn from the graphics block the CAD program stored with them, including arrowheads and dimension text. Dimensions are display-only: clicking them selects nothing, so measurements always snap to the real geometry underneath. Definition points are hidden. Dimension values are not recalculated, and a dimension without a stored block is skipped with a warning.
 
-TEXT and MTEXT control codes are decoded: %%d/%%p/%%c symbols, %%nnn character codes and caret-encoded tabs (shown as spaces). Underline/overline toggles are removed, not drawn.
+Block attributes (ATTRIB) show their values, for example title-block fields and callout numbers. Invisible attributes are not drawn. TEXT and MTEXT control codes are decoded: %%d/%%p/%%c symbols, %%nnn character codes and caret-encoded tabs (shown as spaces). Underline/overline toggles are removed, not drawn.
 
 Multileaders (MULTILEADER) draw their straight leader lines, landing doglegs, closed filled arrowheads and MTEXT content, and are display-only like dimensions. Spline leaders are drawn straight, custom arrowheads as closed filled arrows, and block content is omitted; each case adds a rendering note.
 
@@ -46,6 +46,6 @@ CAD drawings often keep model space as a scratch area: each detail is drawn once
 
 Only top-down (plan) viewports are drawn; 3D views are skipped with a warning. Viewports that are switched off draw nothing. Non-rectangular clip boundaries are shown as their rectangle, and per-viewport frozen layers are still shown; both add a rendering note.
 
-Not supported yet: gradient hatches, excessively dense hatch patterns, variable attributes, legacy LEADER entities, standalone ELLIPSE entities, binary DXF, external references, block clipping/dynamic block behavior and general 3D/OCS geometry. XY-plane OCS with either normal direction is supported for the new planar primitives and inserts. Unsupported entity types trigger a warning and are counted in the footer. Layer visibility, colors and linetypes are not applied. Non-ASCII layer names from legacy code pages may need encoding support.
+Not supported yet: gradient hatches, excessively dense hatch patterns, multiline attributes, legacy LEADER entities, standalone ELLIPSE entities, binary DXF, external references, block clipping/dynamic block behavior and general 3D/OCS geometry. XY-plane OCS with either normal direction is supported for the new planar primitives and inserts. Unsupported entity types trigger a warning and are counted in the footer. Layer visibility, colors and linetypes are not applied. Non-ASCII layer names from legacy code pages may need encoding support.
 
 Units come from `$INSUNITS` when present; otherwise the footer says the drawing units are unspecified. No unit conversion is applied.

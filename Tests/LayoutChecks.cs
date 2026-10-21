@@ -85,7 +85,7 @@ public sealed class LayoutChecks
     {
         // uncommon.dxf declares Layout1 (a single viewport onto model space) and an empty Layout2.
         var doc=DxfReader.Load(Path.Combine(AppContext.BaseDirectory,"Fixtures","Public","uncommon.dxf"));
-        Assert.Empty(doc.Layouts);Assert.Equal(147,doc.Entities.Count);
+        Assert.Empty(doc.Layouts);Assert.Equal(148,doc.Entities.Count);
     });
 
     [Theory]
@@ -113,7 +113,7 @@ public sealed class LayoutChecks
     }));
 
     [Fact]
-    public void PublicSheets()=>TestSupport.Run("api-cw750: four sheets and inactive-layout viewports",()=>
+    public void PublicSheetsAndAttributes()=>TestSupport.Run("api-cw750: four sheets, inactive-layout viewports and attribute text",()=>
     {
         var doc=DxfReader.Load(Path.Combine(AppContext.BaseDirectory,"Fixtures","Public","api-cw750-details.dxf"));
         Assert.Equal(["Sheet 1","Sheet 2","Sheet 3","Sheet 4"],doc.Layouts.Select(l=>l.Name));
@@ -123,5 +123,14 @@ public sealed class LayoutChecks
         Assert.Equal(["20BF","21A8"],doc.Layouts[2].Viewports.Select(v=>v.Handle));
         Assert.Equal(["21CB","2E11"],doc.Layouts[3].Viewports.Select(v=>v.Handle));
         Assert.Equal(1,doc.Skipped["VIEWPORT (3D view)"]);
+        // Title block attribute values appear on their own sheet; empty values draw nothing.
+        for(int i=0;i<4;i++)
+        {
+            var texts=doc.Layouts[i].Entities.Where(e=>e.Kind=="ATTRIB").Select(e=>e.Text).ToList();
+            Assert.Contains($"{i+1} of 4",texts);Assert.Contains("API In House",texts);Assert.DoesNotContain("",texts);
+        }
+        Assert.Contains("1:2",doc.Layouts[2].Entities.Where(e=>e.Kind=="ATTRIB").Select(e=>e.Text));
+        // Model-space callout bubbles carry sheet/detail numbers as attributes: "3" is six SHEETNO, one DETNO and one QTY value.
+        Assert.Equal(8,doc.Entities.Count(e=>e.Kind=="ATTRIB"&&e.Text=="3"));
     });
 }
