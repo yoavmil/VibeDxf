@@ -12,10 +12,33 @@ internal static class DxfPrimitives
     public static List<Curve> Outline(IEnumerable<Point[]> contours) => contours.SelectMany(p =>
         p.Select((a,i) => Curve.Line(a,p[(i+1)%p.Length]))).ToList();
 
+    // Contours whose bounding boxes are disjoint can neither contain nor cross each other, so their even/odd
+    // fills are independent. Triangulating each overlapping group alone keeps scan strips local to one glyph
+    // (with its holes) instead of spanning a whole line of text.
+    public static List<Point> Triangulate(IEnumerable<Point[]> contours)
+    {
+        var list=contours.Where(p=>p.Length>0).ToList();
+        if(list.Count<2)return TriangulateGroup(list);
+        var boxes=list.Select(p=>(MinX:p.Min(v=>v.X),MinY:p.Min(v=>v.Y),MaxX:p.Max(v=>v.X),MaxY:p.Max(v=>v.Y))).ToArray();
+        var parent=Enumerable.Range(0,list.Count).ToArray();
+        int Root(int i){while(parent[i]!=i)i=parent[i]=parent[parent[i]];return i;}
+        var active=new List<int>();
+        foreach(var i in Enumerable.Range(0,list.Count).OrderBy(i=>boxes[i].MinX))
+        {
+            active.RemoveAll(j=>boxes[j].MaxX<boxes[i].MinX);
+            foreach(var j in active)
+                if(boxes[j].MinY<=boxes[i].MaxY&&boxes[i].MinY<=boxes[j].MaxY)parent[Root(i)]=Root(j);
+            active.Add(i);
+        }
+        var result=new List<Point>();
+        foreach(var group in Enumerable.Range(0,list.Count).GroupBy(Root))result.AddRange(TriangulateGroup(group.Select(i=>list[i])));
+        return result;
+    }
+
     // Even/odd scan conversion into trapezoids handles concave outlines and glyph holes.
     // Split at both vertices and edge crossings: overlapping/self-intersecting paths
     // can change edge order between vertices, including after a block rotation.
-    public static List<Point> Triangulate(IEnumerable<Point[]> contours)
+    private static List<Point> TriangulateGroup(IEnumerable<Point[]> contours)
     {
         var edges=contours.SelectMany(p=>p.Select((a,i)=>(A:a,B:p[(i+1)%p.Length])))
             .Where(e=>Math.Abs(e.A.Y-e.B.Y)>1e-14).ToArray();
