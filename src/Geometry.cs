@@ -153,6 +153,8 @@ public sealed class DxfEntity(string kind, string layer, string handle, List<Cur
     public string? Text { get; init; }
     public string? InstancePath { get; init; }
     public bool IsApproximate { get; init; }
+    // Dimension block geometry is drawn but never picked, snapped or measured.
+    public bool IsAnnotation { get; init; }
     public bool IsUnbounded => Curves.Any(c => c.IsUnbounded);
     public bool Contains(Point p)
     {

@@ -290,6 +290,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
             double nearest = 7 / scale;
             foreach (var entity in Document.Entities)
             {
+                if (entity.IsAnnotation) continue;
                 var b = entity.Bounds; b.Inflate(nearest, nearest);
                 // Ray and xline bounds hold only their base point, so they skip the box prefilter.
                 if (!entity.IsUnbounded && !b.Contains(point)) continue;

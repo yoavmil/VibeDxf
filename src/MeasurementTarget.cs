@@ -39,7 +39,7 @@ public sealed class MidpointIndex
     public MidpointIndex(IEnumerable<DxfEntity> entities)
     {
         // Flattened spline chords are approximation details, not straight segments users can snap to.
-        var entries = entities.Where(e => e.Kind is not ("MTEXT" or "HATCH" or "SPLINE" or "TEXT" or "POINT") && !e.IsApproximate).SelectMany(e => e.Curves.Select((c, i) => (Curve: c, Index: i))
+        var entries = entities.Where(e => e.Kind is not ("MTEXT" or "HATCH" or "SPLINE" or "TEXT" or "POINT") && !e.IsApproximate && !e.IsAnnotation).SelectMany(e => e.Curves.Select((c, i) => (Curve: c, Index: i))
             .Where(v => v.Curve.IsLine && !v.Curve.IsUnbounded && v.Curve.Start != v.Curve.End)
             .Select(v => new Entry(new MeasurementTarget(e, v.Index), v.Curve.At(0.5)))).ToArray();
         byX = entries.OrderBy(e => e.Point.X).ToArray();

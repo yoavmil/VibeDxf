@@ -55,12 +55,18 @@ public static class DxfReader
         }
         void Skip(string kind)=>doc.Skipped[kind]=doc.Skipped.GetValueOrDefault(kind)+1;
         int expansionCount=0;
-        void Expand(Record record,System.Windows.Media.Matrix parent,string inheritedLayer,string path,HashSet<string> stack)
+        // Shared by INSERT and dimension blocks; a successful lookup pushes the name onto the cycle stack.
+        bool Enter(string kind,string name,HashSet<string> stack,out (Record Header,List<Record> Records) block)
+        {
+            if(name.Length==0||!blocks.TryGetValue(name,out block)){block=default;Skip(kind+" (missing block)");return false;}
+            if(((int)block.Header.N(70)&(4|8))!=0){Skip(kind+" (external reference)");return false;}
+            if(stack.Count>=32||!stack.Add(name)){Skip(kind+" (recursive or too deep)");return false;}
+            return true;
+        }
+        void Expand(Record record,System.Windows.Media.Matrix parent,string inheritedLayer,string path,HashSet<string> stack,bool annotation)
         {
             var name=record.S(2);
-            if(!blocks.TryGetValue(name,out var block)){Skip("INSERT (missing block)");return;}
-            if(((int)block.Header.N(70)&(4|8))!=0){Skip("INSERT (external reference)");return;}
-            if(stack.Count>=32||!stack.Add(name)){Skip("INSERT (recursive or too deep)");return;}
+            if(!Enter("INSERT",name,stack,out var block))return;
             try
             {
                 var sx=record.N(41,1);var sy=record.N(42,1);
@@ -79,12 +85,32 @@ public static class DxfReader
                     transform.Rotate(record.N(50));transform.Translate(record.N(10),record.N(20));
                     if(record.N(230,1)<0)transform.Append(new(-1,0,0,1,0,0));
                     transform.Append(parent);
-                    Process(block.Records,transform,layer,$"{path}{record.S(5,name)}[{row},{col}]/",stack);
+                    Process(block.Records,transform,layer,$"{path}{record.S(5,name)}[{row},{col}]/",stack,annotation);
                 }
             }
             finally{stack.Remove(name);}
         }
-        void Process(List<Record> records,System.Windows.Media.Matrix matrix,string inheritedLayer,string path,HashSet<string> stack)
+        // The anonymous *D block already holds the dimension graphics in WCS; only group 12 (copied dimensions) moves it.
+        void ExpandDimension(Record record,System.Windows.Media.Matrix parent,string inheritedLayer,string path,HashSet<string> stack)
+        {
+            var name=record.S(2);
+            if(!Enter(record.Kind,name,stack,out var block))return;
+            try
+            {
+                if(++expansionCount>100000){Skip("INSERT (expansion limit)");return;}
+                var layer=record.S(8,"0");if(layer=="0")layer=inheritedLayer;
+                var transform=System.Windows.Media.Matrix.Identity;
+                // Like ezdxf: no block base point; group 12 is an OCS offset, mirrored with the content below.
+                transform.Translate(record.N(12),record.N(22));
+                if(record.N(230,1)<0)transform.Append(new(-1,0,0,1,0,0));
+                transform.Append(parent);
+                var before=doc.Entities.Count;
+                Process(block.Records,transform,layer,$"{path}{record.S(5,name)}/",stack,true);
+                if(doc.Entities.Count==before)Skip(record.Kind+" (empty block)");
+            }
+            finally{stack.Remove(name);}
+        }
+        void Process(List<Record> records,System.Windows.Media.Matrix matrix,string inheritedLayer,string path,HashSet<string> stack,bool annotation=false)
         {
             List<(Point P,double Bulge)>? vertices=null;
             string polyLayer="0",polyHandle="";bool polyClosed=false;
@@ -92,7 +118,7 @@ public static class DxfReader
             {
                 if(doc.Entities.Count>=1000000)throw new InvalidDataException("Expanded drawing exceeds one million entities.");
                 var layer=entity.Layer=="0"?inheritedLayer:entity.Layer;
-                try { doc.Entities.Add(DxfPrimitives.Transform(entity,matrix,layer,path+entity.Handle)); }
+                try { doc.Entities.Add(DxfPrimitives.Transform(entity,matrix,layer,path+entity.Handle,annotation)); }
                 catch(InvalidDataException){Skip(entity.Kind+" (transformed geometry limit)");}
             }
             foreach(var record in records)
@@ -102,7 +128,7 @@ public static class DxfReader
                 double N(int c,double fallback=0)=>record.N(c,fallback);
                 Point P(int x,int y)=>new(N(x),N(y));
                 // OCS parallel to XY is supported, including a reversed normal. General 3D is intentionally excluded.
-                if(record.Kind is "HATCH" or "POINT" or "SOLID" or "TEXT" or "INSERT" or "ATTDEF" or "CIRCLE" or "ARC" or "LWPOLYLINE")
+                if(record.Kind is "HATCH" or "POINT" or "SOLID" or "TEXT" or "INSERT" or "ATTDEF" or "CIRCLE" or "ARC" or "LWPOLYLINE" or "DIMENSION" or "ARC_DIMENSION" or "LARGE_RADIAL_DIMENSION")
                 {
                     if(Math.Abs(N(210))>1e-9||Math.Abs(N(220))>1e-9||Math.Abs(Math.Abs(N(230,1))-1)>1e-9)
                     {Skip(record.Kind+" (3D extrusion)");continue;}
@@ -145,13 +171,25 @@ public static class DxfReader
                         catch(Exception ex) when(ex is InvalidDataException or FormatException or OverflowException or ArgumentException)
                         {Skip("MTEXT (invalid or unsupported)");}
                         break;
+                    case "MULTILEADER":
+                        try
+                        {
+                            var notes=new HashSet<string>();
+                            Add(DxfMLeader.Read(fields.Select(f=>(f.Code,f.Value)).ToList(),S(8,"0"),S(5),note=>notes.Add(note)));
+                            foreach(var note in notes)doc.RenderingWarnings[note]=doc.RenderingWarnings.GetValueOrDefault(note)+1;
+                        }
+                        catch(NotSupportedException ex){Skip(ex.Message);}
+                        catch(Exception ex) when(ex is InvalidDataException or FormatException or OverflowException or ArgumentException)
+                        {Skip("MULTILEADER (invalid or unsupported)");}
+                        break;
                     case "HATCH":
                         try { Add(DxfHatch.Read(fields.Select(f=>(f.Code,f.Value)).ToList(),S(8,"0"),S(5))); }
                         catch(NotSupportedException ex){Skip(ex.Message);}
                         catch(Exception ex) when(ex is InvalidDataException or FormatException or OverflowException or ArgumentException)
                         {Skip("HATCH (invalid or unsupported boundary/pattern)");}
                         break;
-                    case "POINT": curves.Add(Curve.Line(P(10,20),P(10,20)));break;
+                    // Dimension blocks use POINT only for non-plotting definition points.
+                    case "POINT": if(annotation)break; curves.Add(Curve.Line(P(10,20),P(10,20)));break;
                     case "SOLID":
                         var corners=new[]{P(10,20),P(11,21),fields.Any(f=>f.Code==13)?P(13,23):P(12,22),P(12,22)};
                         fill.Add(corners.Distinct().ToArray());curves=DxfPrimitives.Outline(fill);break;
@@ -174,7 +212,9 @@ public static class DxfReader
                         }
                         break;
                     case "INSERT":
-                        Expand(record,matrix,inheritedLayer,path,stack);break;
+                        Expand(record,matrix,inheritedLayer,path,stack,annotation);break;
+                    case "DIMENSION": case "ARC_DIMENSION": case "LARGE_RADIAL_DIMENSION":
+                        ExpandDimension(record,matrix,inheritedLayer,path,stack);break;
                     case "LINE": curves.Add(Curve.Line(P(10, 20), P(11, 21))); break;
                     case "RAY": case "XLINE":
                         // Base point and unit direction are WCS vectors, not OCS; only XY directions are drawable.
@@ -221,7 +261,7 @@ public static class DxfReader
         Process(entities,System.Windows.Media.Matrix.Identity,"0","",new(StringComparer.OrdinalIgnoreCase));
         // Fills are independent and Triangulate is pure; the renderer still concatenates them in entity order.
         Parallel.ForEach(doc.Entities.Where(e=>e.FillContours.Count>0),e=>e.FillTriangles=DxfPrimitives.Triangulate(e.FillContours));
-        if(doc.Entities.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
+        if(doc.Entities.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text, dimensions, multileaders and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
         return doc;
     }
     private sealed record Record(string Kind,List<Pair> Fields)
