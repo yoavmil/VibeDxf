@@ -259,9 +259,8 @@ internal static class DxfMText
         void Flush()
         {
             if(buffer.Length==0)return;
-            var value=buffer.ToString().Replace("%%d","°",StringComparison.OrdinalIgnoreCase)
-                .Replace("%%p","±",StringComparison.OrdinalIgnoreCase).Replace("%%c","Ø",StringComparison.OrdinalIgnoreCase);
-            tokens.Add(new(value,state));buffer.Clear();
+            // Shared TEXT decoding: %% symbols and codes, plus caret-encoded tabs (^I) used in CAD tables.
+            tokens.Add(new(DxfPrimitives.DecodeText(buffer.ToString()),state));buffer.Clear();
         }
         for(int i=0;i<raw.Length;i++)
         {

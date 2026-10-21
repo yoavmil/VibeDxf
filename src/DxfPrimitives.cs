@@ -67,10 +67,17 @@ internal static class DxfPrimitives
         return result;
     }
 
-    public static string DecodeText(string text) => Regex.Replace(text,@"\\U\+([0-9a-fA-F]{4})",
-        m=>((char)int.Parse(m.Groups[1].Value,NumberStyles.HexNumber)).ToString())
-        .Replace("%%d","°",StringComparison.OrdinalIgnoreCase).Replace("%%p","±",StringComparison.OrdinalIgnoreCase)
-        .Replace("%%c","Ø",StringComparison.OrdinalIgnoreCase);
+    // DXF TEXT control codes: \U+XXXX, %%d/%%p/%%c symbols, %%nnn character codes, %%% percent,
+    // %%u/%%o underline/overline toggles (not drawn) and caret-encoded control characters (^I tab, "^ " caret).
+    public static string DecodeText(string text) => Regex.Replace(Regex.Replace(text,@"\\U\+([0-9a-fA-F]{4})",
+        m=>((char)int.Parse(m.Groups[1].Value,NumberStyles.HexNumber)).ToString()),
+        @"%%(\d{3}|[dpcuo%])|\^(.)",m=>m.Groups[2].Success
+            ? m.Groups[2].Value==" "?"^":m.Groups[2].Value[0] is >='@' and <='_'?" ":m.Value
+            : char.ToLowerInvariant(m.Groups[1].Value[0]) switch
+            {
+                'd'=>"°",'p'=>"±",'c'=>"Ø",'%'=>"%",'u' or 'o'=>"",
+                _=>((char)int.Parse(m.Groups[1].Value,CultureInfo.InvariantCulture)).ToString(),
+            },RegexOptions.IgnoreCase);
 
     public static List<Point[]> Text(string value,double height,double width,double oblique,int flags,
         int horizontal,int vertical,Point first,Point second,double rotation)

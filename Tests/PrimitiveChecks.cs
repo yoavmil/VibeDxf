@@ -161,4 +161,15 @@ public sealed class PrimitiveChecks
         }
         finally{window.Close();Pump();}
     }));
+
+    [Theory]
+    [InlineData("%%UElevation","Elevation")]
+    [InlineData("%%uTypical %%oHorizontal%%O","Typical Horizontal")]
+    [InlineData("Part^I^IPart No.","Part  Part No.")]
+    [InlineData("45%%d %%p0.1 %%c20","45° ±0.1 Ø20")]
+    [InlineData("100%%% and %%065","100% and A")]
+    [InlineData("caret ^ kept","caret ^kept")]
+    [InlineData(@"\U+00B5m","µm")]
+    public void TextControlCodes(string raw,string expected)=>TestSupport.Run($"TEXT control codes: {raw}",()=>
+        Assert.Equal(expected,DxfPrimitives.DecodeText(raw)));
 }
