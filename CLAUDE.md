@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 VibeDxf is a small C# / WPF 2D DXF viewer with element-to-element distance measurement, targeting `net10.0-windows`. The drawing is rendered with Direct3D 11 and Direct2D through Vortice.Windows (`Vortice.Direct3D11`, `Vortice.Direct2D1`, `Vortice.D3DCompiler`). These are the only NuGet packages; don't add others without a good reason. See [README.md](README.md) for user-facing controls and the supported/unsupported DXF feature scope.
 
+## Packaging and releases
+
+See [RELEASING.md](RELEASING.md) for the release procedure, versioning, local installer builds, GitHub Actions publication, icons, runtime requirements, and verification/recovery. Keep these maintainer details there and keep README.md user-facing. Releases are framework-dependent Windows x64 builds: never bundle, download, or install the .NET runtime automatically.
+
 ## Commands
 
 ```powershell
