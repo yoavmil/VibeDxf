@@ -42,12 +42,24 @@ Block attributes (ATTRIB) show their values, for example title-block fields and 
 
 Multileaders (MULTILEADER) draw their straight leader lines, landing doglegs, closed filled arrowheads and MTEXT content, and are display-only like dimensions. Spline leaders are drawn straight, custom arrowheads as closed filled arrows, and block content is omitted; each case adds a rendering note.
 
+### Layers and colors
+
+Drawings show their DXF colors: the layer color (BYLAYER), an entity's own color index or true color, and BYBLOCK colors inherited from block inserts. Index color 7 shows white on the dark background, and very dark colors are lightened just enough to stay visible. Display-only items are drawn dimmed so it's clear they can't be clicked: dimensions, leaders, multileaders, viewport frames, and model content seen through a sheet's viewports.
+
+Layers start as the drawing saved them: layers that are off or frozen are hidden. The **Layers panel** on the left (View › Layers panel, `Ctrl+L`) lists every layer with its color, element count and saved state. In the panel you can:
+- turn layers on and off, search them, show all, or restore the file's saved state;
+- double-click a layer to show only that layer;
+- show or hide annotation types: dimensions, leaders, multileaders, text, hatches and viewport frames;
+- switch the drawing to monochrome.
+
+When saved-off layers hide content, the panel opens by itself with a **Show all** button. Hidden items can't be selected or measured. Layers frozen in a single viewport are hidden only in that viewport. Linetypes (dashes) and lineweights are not applied yet.
+
 ### Model and layout
 
 CAD drawings often keep model space as a scratch area: each detail is drawn once at full size, scattered around. The sheets (paper layouts) arrange those details at chosen scales with a title block. When a drawing has real sheets, tabs below the drawing switch between **Model** and each sheet, in the drawing's tab order (`Ctrl+PgUp`/`Ctrl+PgDn` also switch). Most DXF files carry unused default layouts (Layout1, Layout2). A layout only gets a tab if it adds something beyond model space: its own paper-space content, or more than one viewport. Otherwise there are no tabs. A sheet shows its title block and other paper-space content. Each viewport window shows model space at its own scale and rotation, clipped to its frame, as in a plotted sheet. On a sheet, only paper-space elements can be selected and measured, in paper units. Model content inside viewports is display-only.
 
 Only top-down (plan) viewports are drawn; 3D views are skipped with a warning. Viewports that are switched off draw nothing. Non-rectangular clip boundaries are shown as their rectangle, and per-viewport frozen layers are still shown; both add a rendering note.
 
-Not supported yet: gradient hatches, excessively dense hatch patterns, multiline attributes, standalone ELLIPSE entities, binary DXF, external references, block clipping/dynamic block behavior and general 3D/OCS geometry. XY-plane OCS with either normal direction is supported for the new planar primitives and inserts. Unsupported entity types trigger a warning and are counted in the footer. Layer visibility, colors and linetypes are not applied. Non-ASCII layer names from legacy code pages may need encoding support.
+Not supported yet: gradient hatches, excessively dense hatch patterns, multiline attributes, standalone ELLIPSE entities, binary DXF, external references, block clipping/dynamic block behavior and general 3D/OCS geometry. XY-plane OCS with either normal direction is supported for the new planar primitives and inserts. Unsupported entity types trigger a warning and are counted in the footer. Linetypes and lineweights are not applied. Non-ASCII layer names from legacy code pages may need encoding support.
 
 Units come from `$INSUNITS` when present; otherwise the footer says the drawing units are unspecified. No unit conversion is applied.

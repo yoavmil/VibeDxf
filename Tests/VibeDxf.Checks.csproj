@@ -13,13 +13,14 @@
  <ItemGroup><None Update="Fixtures/Public/**/*" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
  <ItemGroup><Compile Include="../src/DxfPrimitives.cs" Link="DxfPrimitives.cs"/></ItemGroup>
  <ItemGroup><Compile Include="MLeaderChecks.cs"/></ItemGroup>
+<ItemGroup><Compile Include="LayerChecks.cs"/></ItemGroup>
 <ItemGroup><Compile Include="LayoutChecks.cs"/><None Update="Fixtures/layout.dxf" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
 <ItemGroup><Compile Include="DimensionChecks.cs"/><None Update="Fixtures/dimensions.dxf" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
 <ItemGroup><Compile Include="RayChecks.cs"/><None Update="Fixtures/rays-and-xlines.dxf" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
  <ItemGroup><Compile Include="PrimitiveChecks.cs"/><None Update="Fixtures/primitives-and-blocks.dxf" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
  <ItemGroup><Compile Include="../src/DxfHatch.cs" Link="DxfHatch.cs"/></ItemGroup>
  <ItemGroup><Compile Include="HatchChecks.cs"/><None Update="Fixtures/hatches.dxf" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
- <ItemGroup><Compile Include="../src/DxfMText.cs" Link="DxfMText.cs"/><Compile Include="../src/DxfMLeader.cs" Link="DxfMLeader.cs"/></ItemGroup>
+ <ItemGroup><Compile Include="../src/DxfMText.cs" Link="DxfMText.cs"/><Compile Include="../src/DxfColors.cs" Link="DxfColors.cs"/><Compile Include="../src/DxfMLeader.cs" Link="DxfMLeader.cs"/></ItemGroup>
  <ItemGroup><Compile Include="MTextChecks.cs"/><None Update="Fixtures/mtext.dxf" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
  <ItemGroup><None Update="Fixtures/mtext-single*.dxf" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
 </Project>

@@ -99,7 +99,8 @@ public sealed class HatchChecks
         void Pump()=>Dispatcher.CurrentDispatcher.Invoke(()=>{},DispatcherPriority.ApplicationIdle);
         try
         {
-            window.Show();view.SetDocument(doc);Pump();
+            // Showcase: api-cw750 saves most layers off, including the hatch layer.
+            window.Show();view.SetDocument(doc);view.ShowAll();Pump();
             var renderer=(DrawingRenderer)Field(Field(view,"host")!,"<Renderer>k__BackingField")!;
             var lines=Field(renderer,"lineBuffer");var fill=Field(renderer,"fillBuffer");
             foreach(var hatch in hatches)

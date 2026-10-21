@@ -147,7 +147,8 @@ internal static class DxfPrimitives
         }).ToArray()).ToList();
     }
 
-    public static DxfEntity Transform(DxfEntity entity,Matrix matrix,string layer,string handle,bool annotation=false)
+    /// <summary>Places an entity; <paramref name="category"/> (dimension/leader block content) overrides its own category.</summary>
+    public static DxfEntity Transform(DxfEntity entity,Matrix matrix,string layer,string handle,EntityCategory? category=null,uint? color=null)
     {
         var u=matrix.Transform(new Vector(1,0));var v=matrix.Transform(new Vector(0,1));
         bool similarity=Math.Abs(u.Length-v.Length)<1e-10*Math.Max(1,u.Length)&&
@@ -185,7 +186,8 @@ internal static class DxfPrimitives
             RegionContours=entity.RegionContours?.Select(p=>p.Select(matrix.Transform).ToArray()).ToList(),
             RenderCurves=entity.RenderCurves?.Select(c=>Curve.Line(matrix.Transform(c.Start),matrix.Transform(c.End))).ToList(),
             RenderDots=entity.RenderDots.Select(matrix.Transform).ToList(),
-            Text=entity.Text,IsApproximate=approximate,InstancePath=handle,IsAnnotation=annotation||entity.IsAnnotation
+            Text=entity.Text,IsApproximate=approximate,InstancePath=handle,
+            Category=category??entity.Category,Color=color??entity.Color
         };
     }
 }

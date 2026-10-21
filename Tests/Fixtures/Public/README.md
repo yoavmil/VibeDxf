@@ -6,6 +6,8 @@ Downloaded 2026-10-21. Tests use these committed copies offline; no private draw
 |---|---|---:|---|
 | api-cw750-details.dxf | [Upstream](https://github.com/gdsestimating/dxf-parser/blob/master/samples/data/api-cw750-details.dxf) | 2738077 | 02a2d997c617cf9ca74ff06d8f0a6d0262db73027d3afedbe5df9f3d5b6d25be |
 | uncommon.dxf | [Upstream](https://github.com/mozman/ezdxf/blob/master/examples_dxf/uncommon.dxf) | 343110 | 5efdd671e3b6d8c45bd0688b1d6479d523f2290f0b390f1584348bf46e34c965 |
+| colors.dxf | [Upstream](https://github.com/mozman/ezdxf/blob/master/examples_dxf/colors.dxf) | 151817 | 70c12f1e3fd291c4ab02df7628624956fce315263c0ebcb18734d0b6e5b9974a |
+| viewport_frozen_layers.dxf | [Upstream](https://github.com/mozman/ezdxf/blob/master/examples_dxf/viewport_frozen_layers.dxf) | 73504 | c04a78677627e94c0056b2c01f641770439668932bd2288392ae9ec654a5e222 |
 
 Upstream repositories publish under MIT; retain the adjacent dxf-parser-LICENSE.txt and ezdxf-LICENSE.txt notices with these fixtures. Files are unmodified.
 
@@ -13,6 +15,8 @@ Upstream repositories publish under MIT; retain the adjacent dxf-parser-LICENSE.
 
 - api-cw750-details.dxf: 4,313 model-space entities after INSERT, dimension and leader expansion (3,278 LINE, 322 MTEXT, 296 LWPOLYLINE, 75 ARC, 73 HATCH, 58 CIRCLE, 58 MULTILEADER, 57 TEXT, 43 ATTRIB, 42 SOLID, 11 LEADER). All 293 DIMENSION, 58 MULTILEADER and 11 LEADER records render as display-only annotations; the leaders use the `_OPEN` arrow block. Four layouts: Sheet 1 (63 paper-space entities, 2 viewports), Sheet 2 (73, 1), Sheet 3 (74, 2) and Sheet 4 (62, 2). Each has a title block with attribute values. Inactive sheets store viewport ID/status 0; Sheet 4's isometric viewport is skipped. Skipped: 3 3DSOLID, 1 VIEWPORT (3D view).
 - uncommon.dxf: 148 model-space entities (59 LINE, 35 MTEXT, 21 SOLID, 10 ARC, 7 LWPOLYLINE, 6 POINT, 3 RAY, 2 MULTILEADER, 2 XLINE, 1 SPLINE, 1 CIRCLE, 1 ATTRIB); 13 DIMENSION, 2 LARGE_RADIAL_DIMENSION and 1 ARC_DIMENSION render from their blocks. Its default Layout1 (one bare viewport) and empty Layout2 are dropped, so it has no layout tabs. Skipped: 2 3D POLYLINE; 1 each 3DSOLID, MESH (4 records).
+- colors.dxf: ezdxf's color sample. Layers RED (ACI 10) and BLUE (ACI 170); circles, MTEXT and polylines that are BYLAYER, have an explicit ACI with a true color (0xF26722) that wins, or are BYBLOCK; and block inserts whose children are BYLAYER, BYBLOCK or explicit, with one insert recolored yellow.
+- viewport_frozen_layers.dxf: ezdxf's per-viewport freeze sample. Layer3 is frozen in the file, and a layout has three viewports: no overrides, Layer1 frozen, and Layer2 frozen (group 331).
 
 These counts describe ENTITIES records handled by the current reader; sequence/control records are not drawable entities. Referenced BLOCKS definitions are expanded recursively; counts include child entities and skipped child records per instance, not unused block definitions. Model space and every paper layout (from ENTITIES for the active one, *Paper_SpaceN blocks for the others) are loaded separately; the reader implements planar XY OCS and 2D insertion transforms, not general OCS/3D transforms. A successfully parsed/uploaded entity does not guarantee a complete or geometrically faithful rendering of these drawings.
 

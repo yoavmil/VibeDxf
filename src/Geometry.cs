@@ -137,6 +137,8 @@ public sealed record Curve(Point Start, Point End, Point Center, double Radius, 
         return best;
     }
 }
+/// <summary>Visibility categories. Values from <see cref="Dimension"/> up are display-only annotations.</summary>
+public enum EntityCategory { Geometry, Text, Hatch, Dimension, Leader, Multileader, ViewportFrame }
 public sealed class DxfEntity(string kind, string layer, string handle, List<Curve> curves)
 {
     public string Kind { get; } = kind;
@@ -153,8 +155,18 @@ public sealed class DxfEntity(string kind, string layer, string handle, List<Cur
     public string? Text { get; init; }
     public string? InstancePath { get; init; }
     public bool IsApproximate { get; init; }
-    // Dimension block geometry is drawn but never picked, snapped or measured.
-    public bool IsAnnotation { get; init; }
+    /// <summary>Display category for visibility toggles; annotation categories are drawn but never picked, snapped or measured.</summary>
+    public EntityCategory Category { get; init; } = kind switch
+    {
+        "TEXT" or "MTEXT" or "ATTRIB" or "ATTDEF" => EntityCategory.Text,
+        "HATCH" => EntityCategory.Hatch,
+        _ => EntityCategory.Geometry,
+    };
+    public bool IsAnnotation => Category >= EntityCategory.Dimension;
+    /// <summary>Resolved DXF color as packed RGBA (R in the low byte), ready for the GPU.</summary>
+    public uint Color { get; init; } = DxfColors.White;
+    /// <summary>Index into <c>DxfDocument.Groups</c> (layer + category); assigned once the drawing is loaded.</summary>
+    public int Group { get; internal set; }
     public bool IsUnbounded => Curves.Any(c => c.IsUnbounded);
     public bool Contains(Point p)
     {

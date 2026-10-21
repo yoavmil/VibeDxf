@@ -71,7 +71,7 @@ internal static class DxfMLeader
             curves.AddRange(layout.Curves);fills.AddRange(layout.FillContours);text=layout.Text;
         }
         if(curves.Count==0)throw new NotSupportedException("MULTILEADER (no displayable content)");
-        return new DxfEntity("MULTILEADER",layer,handle,curves){FillContours=fills,Text=text,IsApproximate=text!=null,IsAnnotation=true};
+        return new DxfEntity("MULTILEADER",layer,handle,curves){FillContours=fills,Text=text,IsApproximate=text!=null,Category=EntityCategory.Multileader};
     }
     private static string V(double value)=>value.ToString("R",CultureInfo.InvariantCulture);
 }

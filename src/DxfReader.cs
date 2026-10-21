@@ -3,7 +3,16 @@ using System.IO;
 using System.Windows;
 namespace VibeDxf;
 // A paper-space window onto model space; ModelToPaper follows ezdxf (top views only).
-public sealed record DxfViewportWindow(string Handle, Rect Paper, System.Windows.Media.Matrix ModelToPaper);
+public sealed record DxfViewportWindow(string Handle, Rect Paper, System.Windows.Media.Matrix ModelToPaper)
+{
+    /// <summary>Indices into <see cref="DxfDocument.Layers"/> frozen in this viewport only (group 331).</summary>
+    public int[] FrozenLayers { get; init; } = [];
+}
+/// <summary>A LAYER table entry. On/frozen describe the state saved in the file, not the viewer's current state.</summary>
+public sealed record DxfLayer(string Name, uint Color, bool OnInFile, bool FrozenInFile, bool Plot, string Linetype)
+{
+    public bool VisibleInFile => OnInFile && !FrozenInFile;
+}
 /// <summary>One paper layout (sheet tab): its paper-space entities and the viewports that show model space.</summary>
 public sealed class DxfLayout(string name)
 {
@@ -21,6 +30,10 @@ public sealed class DxfDocument
     public List<DxfEntity> Entities { get; } = [];
     /// <summary>Paper layouts in tab order.</summary>
     public List<DxfLayout> Layouts { get; } = [];
+    /// <summary>LAYER table in file order, plus any layer that entities use without a table entry.</summary>
+    public List<DxfLayer> Layers { get; } = [];
+    /// <summary>Distinct (layer index, category) pairs; <see cref="DxfEntity.Group"/> indexes this list.</summary>
+    public List<(int Layer, EntityCategory Category)> Groups { get; } = [];
     public Dictionary<string, int> Skipped { get; } = [];
     public string Units { get; set; } = "drawing units (unspecified)";
     public Dictionary<string,int> RenderingWarnings { get; } = [];
@@ -53,7 +66,7 @@ public static class DxfReader
         var blocks=new Dictionary<string,(Record Header,List<Record> Records)>(StringComparer.OrdinalIgnoreCase);
         var blockNames=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         var dimStyles=new Dictionary<string,Record>(StringComparer.OrdinalIgnoreCase);
-        var layoutRecords=new List<Record>();
+        var layoutRecords=new List<Record>();var layerRecords=new List<Record>();
         var entities=new List<Record>();string section="";List<Record>? blockRecords=null;
         for(int i=0;i<pairs.Count;)
         {
@@ -65,6 +78,7 @@ public static class DxfReader
             if(section=="ENTITIES")entities.Add(record);
             else if(section=="TABLES"&&record.Kind=="BLOCK_RECORD")blockNames[record.S(5)]=record.S(2);
             else if(section=="TABLES"&&record.Kind=="DIMSTYLE")dimStyles[record.S(2)]=record;
+            else if(section=="TABLES"&&record.Kind=="LAYER")layerRecords.Add(record);
             else if(section=="OBJECTS"&&record.Kind=="LAYOUT")layoutRecords.Add(record);
             else if(section=="BLOCKS")
             {
@@ -79,6 +93,26 @@ public static class DxfReader
         void Skip(string kind)=>doc.Skipped[kind]=doc.Skipped.GetValueOrDefault(kind)+1;
         void Note(string note)=>doc.RenderingWarnings[note]=doc.RenderingWarnings.GetValueOrDefault(note)+1;
         int expansionCount=0;
+        // LAYER table: a negative color means the layer is off, group 70 bit 1 frozen, 290=0 not plotted.
+        var layerIndex=new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+        var layerHandles=new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
+        int? Int(Record r,int code)=>r.Fields.Any(f=>f.Code==code)?(int)r.N(code):null;
+        foreach(var r in layerRecords)
+        {
+            var name=r.S(2);if(name.Length==0||layerIndex.ContainsKey(name))continue;
+            var aci=Int(r,62)??7;
+            var color=DxfColors.Resolve(Math.Abs(aci)==0?7:Math.Abs(aci),Int(r,420),DxfColors.White,null);
+            layerIndex[name]=doc.Layers.Count;layerHandles[r.S(5)]=doc.Layers.Count;
+            doc.Layers.Add(new DxfLayer(name,color,aci>=0,((int)r.N(70)&1)!=0,r.S(290,"1")!="0",r.S(6,"Continuous")));
+        }
+        int LayerOf(string name)
+        {
+            if(layerIndex.TryGetValue(name,out var index))return index;
+            layerIndex[name]=doc.Layers.Count;doc.Layers.Add(new DxfLayer(name,DxfColors.White,true,false,true,"Continuous"));
+            return doc.Layers.Count-1;
+        }
+        // BYLAYER uses the effective layer (block children on layer 0 take the insert's layer); BYBLOCK the insert's color.
+        uint ColorOf(Record r,string layer,uint? blockColor)=>DxfColors.Resolve(Int(r,62),Int(r,420),doc.Layers[LayerOf(layer)].Color,blockColor);
         // LAYOUT objects name the sheet tabs and own a *Paper_Space block. The active layout's content is
         // stored in ENTITIES with group 67=1; every other layout's content is its block's records.
         var layouts=new List<(DxfLayout Layout,int Tab,string Block)>();
@@ -113,11 +147,13 @@ public static class DxfReader
             transform.Translate(-r.N(17),-r.N(27));transform.Scale(scale,scale);transform.Rotate(r.N(51));
             transform.Translate(r.N(10)-r.N(12)*scale,r.N(20)-r.N(22)*scale);
             var paper=new Rect(r.N(10)-width/2,r.N(20)-height/2,width,height);
-            layout.Viewports.Add(new DxfViewportWindow(r.S(5),paper,transform));
+            // Group 331 lists layers frozen in this viewport only, by LAYER table handle.
+            int[] frozen=[.. r.Fields.Where(f=>f.Code==331).Select(f=>layerHandles.TryGetValue(f.Value,out var i)?i:-1).Where(i=>i>=0).Distinct()];
+            layout.Viewports.Add(new DxfViewportWindow(r.S(5),paper,transform){FrozenLayers=frozen});
             Point[] corners=[paper.BottomLeft,paper.BottomRight,paper.TopRight,paper.TopLeft];
-            layout.Entities.Add(new DxfEntity("VIEWPORT",r.S(8,"0"),r.S(5),DxfPrimitives.Outline([corners])){IsAnnotation=true});
+            layout.Entities.Add(new DxfEntity("VIEWPORT",r.S(8,"0"),r.S(5),DxfPrimitives.Outline([corners]))
+                {Category=EntityCategory.ViewportFrame,Color=ColorOf(r,r.S(8,"0"),null)});
             if((flags&65536)!=0&&r.Fields.Any(f=>f.Code==340))Note("VIEWPORT non-rectangular clipping is shown as its rectangle");
-            if(r.Fields.Any(f=>f.Code==331))Note("VIEWPORT frozen layers are still shown");
         }
         // Shared by INSERT and dimension blocks; a successful lookup pushes the name onto the cycle stack.
         bool Enter(string kind,string name,HashSet<string> stack,out (Record Header,List<Record> Records) block)
@@ -127,7 +163,7 @@ public static class DxfReader
             if(stack.Count>=32||!stack.Add(name)){Skip(kind+" (recursive or too deep)");return false;}
             return true;
         }
-        void Expand(Record record,System.Windows.Media.Matrix parent,string inheritedLayer,string path,HashSet<string> stack,bool annotation)
+        void Expand(Record record,System.Windows.Media.Matrix parent,string inheritedLayer,string path,HashSet<string> stack,EntityCategory? category,uint color)
         {
             var name=record.S(2);
             if(!Enter("INSERT",name,stack,out var block))return;
@@ -149,13 +185,13 @@ public static class DxfReader
                     transform.Rotate(record.N(50));transform.Translate(record.N(10),record.N(20));
                     if(record.N(230,1)<0)transform.Append(new(-1,0,0,1,0,0));
                     transform.Append(parent);
-                    Process(block.Records,transform,layer,$"{path}{record.S(5,name)}[{row},{col}]/",stack,annotation);
+                    Process(block.Records,transform,layer,$"{path}{record.S(5,name)}[{row},{col}]/",stack,category,color);
                 }
             }
             finally{stack.Remove(name);}
         }
         // The anonymous *D block already holds the dimension graphics in WCS; only group 12 (copied dimensions) moves it.
-        void ExpandDimension(Record record,System.Windows.Media.Matrix parent,string inheritedLayer,string path,HashSet<string> stack)
+        void ExpandDimension(Record record,System.Windows.Media.Matrix parent,string inheritedLayer,string path,HashSet<string> stack,uint color)
         {
             var name=record.S(2);
             if(!Enter(record.Kind,name,stack,out var block))return;
@@ -169,20 +205,23 @@ public static class DxfReader
                 if(record.N(230,1)<0)transform.Append(new(-1,0,0,1,0,0));
                 transform.Append(parent);
                 var before=Output().Count;
-                Process(block.Records,transform,layer,$"{path}{record.S(5,name)}/",stack,true);
+                Process(block.Records,transform,layer,$"{path}{record.S(5,name)}/",stack,EntityCategory.Dimension,color);
                 if(Output().Count==before)Skip(record.Kind+" (empty block)");
             }
             finally{stack.Remove(name);}
         }
-        void Process(List<Record> records,System.Windows.Media.Matrix matrix,string inheritedLayer,string path,HashSet<string> stack,bool annotation=false)
+        // category: dimension/leader block content overrides its children's categories.
+        // blockColor: the enclosing insert's resolved color, used by BYBLOCK children.
+        void Process(List<Record> records,System.Windows.Media.Matrix matrix,string inheritedLayer,string path,HashSet<string> stack,EntityCategory? category=null,uint? blockColor=null)
         {
             List<(Point P,double Bulge)>? vertices=null;
-            string polyLayer="0",polyHandle="";bool polyClosed=false;
-            void Add(DxfEntity entity)
+            string polyLayer="0",polyHandle="";bool polyClosed=false;uint polyColor=DxfColors.White;
+            uint color=DxfColors.White;
+            void Add(DxfEntity entity,uint? colorOverride=null)
             {
                 if(doc.Entities.Count+doc.Layouts.Sum(l=>l.Entities.Count)>=1000000)throw new InvalidDataException("Expanded drawing exceeds one million entities.");
                 var layer=entity.Layer=="0"?inheritedLayer:entity.Layer;
-                try { Output().Add(DxfPrimitives.Transform(entity,matrix,layer,path+entity.Handle,annotation)); }
+                try { Output().Add(DxfPrimitives.Transform(entity,matrix,layer,path+entity.Handle,category,colorOverride??color)); }
                 catch(InvalidDataException){Skip(entity.Kind+" (transformed geometry limit)");}
             }
             foreach(var record in records)
@@ -193,6 +232,8 @@ public static class DxfReader
                 string S(int c,string fallback="")=>record.S(c,fallback);
                 double N(int c,double fallback=0)=>record.N(c,fallback);
                 Point P(int x,int y)=>new(N(x),N(y));
+                var recordLayer=S(8,"0");if(recordLayer=="0")recordLayer=inheritedLayer;
+                color=ColorOf(record,recordLayer,blockColor);
                 // OCS parallel to XY is supported, including a reversed normal. General 3D is intentionally excluded.
                 if(record.Kind is "HATCH" or "POINT" or "SOLID" or "TEXT" or "INSERT" or "ATTDEF" or "ATTRIB" or "CIRCLE" or "ARC" or "LWPOLYLINE" or "DIMENSION" or "ARC_DIMENSION" or "LARGE_RADIAL_DIMENSION" or "LEADER")
                 {
@@ -255,7 +296,7 @@ public static class DxfReader
                         {Skip("HATCH (invalid or unsupported boundary/pattern)");}
                         break;
                     // Dimension blocks use POINT only for non-plotting definition points.
-                    case "POINT": if(annotation)break; curves.Add(Curve.Line(P(10,20),P(10,20)));break;
+                    case "POINT": if(category==EntityCategory.Dimension)break; curves.Add(Curve.Line(P(10,20),P(10,20)));break;
                     case "SOLID":
                         var corners=new[]{P(10,20),P(11,21),fields.Any(f=>f.Code==13)?P(13,23):P(12,22),P(12,22)};
                         fill.Add(corners.Distinct().ToArray());curves=DxfPrimitives.Outline(fill);break;
@@ -333,21 +374,21 @@ public static class DxfReader
                                     arrowTransform.Rotate(Math.Atan2(axis.Y,axis.X)*180/Math.PI);arrowTransform.Translate(points[0].X,points[0].Y);
                                     arrowTransform.Append(matrix);
                                     var arrowLayer=S(8,"0");if(arrowLayer=="0")arrowLayer=inheritedLayer;
-                                    Process(arrow.Records,arrowTransform,arrowLayer,$"{path}{S(5)}/arrow/",stack,true);
+                                    Process(arrow.Records,arrowTransform,arrowLayer,$"{path}{S(5)}/arrow/",stack,category??EntityCategory.Leader,color);
                                 }
                                 finally{stack.Remove(arrowName);}
                             }
                         }
-                        if(leaderLines.Count>0)Add(new DxfEntity("LEADER",S(8,"0"),S(5),leaderLines){FillContours=arrowFill,IsAnnotation=true});
+                        if(leaderLines.Count>0)Add(new DxfEntity("LEADER",S(8,"0"),S(5),leaderLines){FillContours=arrowFill,Category=EntityCategory.Leader});
                         break;
                     }
                     case "INSERT":
-                        Expand(record,matrix,inheritedLayer,path,stack,annotation);break;
+                        Expand(record,matrix,inheritedLayer,path,stack,category,color);break;
                     case "VIEWPORT":
                         if(stack.Count!=0||target==null){Skip("VIEWPORT (outside paper space)");break;}
                         ReadViewport(record,target);break;
                     case "DIMENSION": case "ARC_DIMENSION": case "LARGE_RADIAL_DIMENSION":
-                        ExpandDimension(record,matrix,inheritedLayer,path,stack);break;
+                        ExpandDimension(record,matrix,inheritedLayer,path,stack,color);break;
                     case "LINE": curves.Add(Curve.Line(P(10, 20), P(11, 21))); break;
                     case "RAY": case "XLINE":
                         // Base point and unit direction are WCS vectors, not OCS; only XY directions are drawable.
@@ -373,13 +414,13 @@ public static class DxfReader
                         curves = Polyline(vs, ((int)N(70) & 1) != 0); break;
                     case "POLYLINE":
                         if (((int)N(70) & (8 | 16 | 64)) != 0) { doc.Skipped["3D POLYLINE"] = doc.Skipped.GetValueOrDefault("3D POLYLINE") + 1; vertices = null; break; }
-                        vertices = []; polyLayer = S(8, "0"); polyHandle = S(5); polyClosed = ((int)N(70) & 1) != 0; break;
+                        vertices = []; polyLayer = S(8, "0"); polyHandle = S(5); polyColor = color; polyClosed = ((int)N(70) & 1) != 0; break;
                     case "VERTEX": vertices?.Add((P(10, 20), N(42))); break;
                     case "SEQEND":
                         if (vertices != null)
                         {
                             var cs = Polyline(vertices, polyClosed);
-                            if (cs.Count > 0) Add(new DxfEntity("POLYLINE", polyLayer, polyHandle, cs));
+                            if (cs.Count > 0) Add(new DxfEntity("POLYLINE", polyLayer, polyHandle, cs), polyColor);
                             vertices = null;
                         }
                         break;
@@ -404,6 +445,14 @@ public static class DxfReader
         // something beyond model space: its own paper-space content, or several viewports arranging the model.
         doc.Layouts.RemoveAll(l=>!l.Entities.Any(e=>e.Kind!="VIEWPORT")&&l.Viewports.Count<2);
         var all=doc.Entities.Concat(doc.Layouts.SelectMany(l=>l.Entities)).ToList();
+        // One group per distinct layer + category: the renderer's visibility table and the panel toggles index it.
+        var groups=new Dictionary<(int,EntityCategory),int>();
+        foreach(var entity in all)
+        {
+            var key=(LayerOf(entity.Layer),entity.Category);
+            if(!groups.TryGetValue(key,out var group)){group=groups[key]=doc.Groups.Count;doc.Groups.Add(key);}
+            entity.Group=group;
+        }
         // Fills are independent and Triangulate is pure; the renderer still concatenates them in entity order.
         Parallel.ForEach(all.Where(e=>e.FillContours.Count>0),e=>e.FillTriangles=DxfPrimitives.Triangulate(e.FillContours));
         if(all.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text, attributes, dimensions, leaders, multileaders and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));

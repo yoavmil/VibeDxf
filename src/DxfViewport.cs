@@ -93,20 +93,89 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     {
         Document = doc;
         activeLayout = doc.Entities.Count == 0 && doc.Layouts.Count > 0 ? 0 : -1;
+        // Layers start as the file saved them: off or frozen layers are hidden.
+        layerVisible = [.. doc.Layers.Select(l => l.VisibleInFile)];
+        hiddenCategories.Clear();
         Upload();
         ApplyLayout();
+        VisibilityChanged?.Invoke();
     }
     private void ApplyLayout()
     {
         bounds = Layout?.Bounds ?? Document!.Bounds;
-        midpointIndex = new MidpointIndex(ActiveEntities);
+        midpointIndex = new MidpointIndex(ActiveEntities.Where(IsVisible));
         ClearSelection(); Fit(); LayoutChanged?.Invoke();
     }
     private void Upload()
     {
-        if (Document is { } doc)
-            host.Renderer?.SetDrawing(doc.Entities, Center(doc.Bounds),
-                [.. doc.Layouts.Select(l => ((IEnumerable<DxfEntity>)l.Entities, Center(l.Bounds)))]);
+        if (Document is not { } doc || host.Renderer is not { } renderer) return;
+        renderer.SetDrawing(doc.Entities, Center(doc.Bounds),
+            [.. doc.Layouts.Select(l => ((IEnumerable<DxfEntity>)l.Entities, Center(l.Bounds)))], [.. doc.Groups.Select(g => g.Layer)]);
+        renderer.SetGroupFlags(GroupFlags());
+    }
+
+    // ---- Layer and category visibility. Changes rewrite only the renderer's small group table.
+    private bool[] layerVisible = [];
+    private readonly HashSet<EntityCategory> hiddenCategories = [];
+    private bool monochrome;
+    /// <summary>Raised when layer/category visibility or the color mode changes.</summary>
+    public event Action? VisibilityChanged;
+    /// <summary>Draw everything in one color instead of the DXF colors.</summary>
+    public bool Monochrome
+    {
+        get => monochrome;
+        set { if (monochrome == value) return; monochrome = value; Invalidate(); VisibilityChanged?.Invoke(); }
+    }
+    public bool IsLayerVisible(int layer) => layer < 0 || layer >= layerVisible.Length || layerVisible[layer];
+    public bool IsCategoryVisible(EntityCategory category) => !hiddenCategories.Contains(category);
+    public bool IsVisible(DxfEntity entity) => Document is not { } doc || entity.Group >= doc.Groups.Count ||
+        IsLayerVisible(doc.Groups[entity.Group].Layer) && IsCategoryVisible(doc.Groups[entity.Group].Category);
+    public void SetLayerVisible(int layer, bool visible)
+    {
+        if (layer < 0 || layer >= layerVisible.Length || layerVisible[layer] == visible) return;
+        layerVisible[layer] = visible; ApplyVisibility();
+    }
+    /// <summary>Sets several layers at once with a single visibility update.</summary>
+    public void SetLayersVisible(IEnumerable<int> layers, bool visible)
+    {
+        bool changed = false;
+        foreach (var layer in layers)
+            if (layer >= 0 && layer < layerVisible.Length && layerVisible[layer] != visible) { layerVisible[layer] = visible; changed = true; }
+        if (changed) ApplyVisibility();
+    }
+    public void SetCategoryVisible(EntityCategory category, bool visible)
+    {
+        if (visible ? !hiddenCategories.Remove(category) : !hiddenCategories.Add(category)) return;
+        ApplyVisibility();
+    }
+    /// <summary>Shows every layer and category.</summary>
+    public void ShowAll() { Array.Fill(layerVisible, true); hiddenCategories.Clear(); ApplyVisibility(); }
+    /// <summary>Restores the on/off/frozen state saved in the file.</summary>
+    public void ApplySavedLayerState()
+    {
+        if (Document is not { } doc) return;
+        for (int i = 0; i < layerVisible.Length; i++) layerVisible[i] = doc.Layers[i].VisibleInFile;
+        ApplyVisibility();
+    }
+    /// <summary>Shows only the given layer.</summary>
+    public void IsolateLayer(int layer)
+    {
+        for (int i = 0; i < layerVisible.Length; i++) layerVisible[i] = i == layer;
+        ApplyVisibility();
+    }
+    private uint[] GroupFlags() => Document is not { } doc ? [] : [.. doc.Groups.Select(g =>
+        (IsLayerVisible(g.Layer) && IsCategoryVisible(g.Category) ? DrawingRenderer.GroupVisible : 0) |
+        (g.Category >= EntityCategory.Dimension ? DrawingRenderer.GroupAnnotation : 0))];
+    private void ApplyVisibility()
+    {
+        if (Document == null) return;
+        host.Renderer?.SetGroupFlags(GroupFlags());
+        // Hidden items can't be picked, snapped or measured.
+        midpointIndex = new MidpointIndex(ActiveEntities.Where(IsVisible));
+        selected.RemoveAll(t => !IsVisible(t.Entity));
+        hoveredMidpoint = null;
+        UpdateMeasurement();
+        VisibilityChanged?.Invoke();
     }
     private static Point Center(Rect r) => r.IsEmpty ? default : new Point(r.Left + r.Width / 2, r.Top + r.Height / 2);
     internal void RendererCreated()
@@ -146,7 +215,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         if (host.Renderer is not { } renderer) return;
         var (w, h) = host.PixelSize;
         renderer.Render(w, h, VisualTreeHelper.GetDpi(this).DpiScaleX, scale, offset, BackColor, LineColor, DrawOverlay,
-            activeLayout, Layout?.Viewports);
+            activeLayout, Layout?.Viewports, monochrome);
     }
 
     private void DrawOverlay(ID2D1DeviceContext dc)
@@ -321,7 +390,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
             double nearest = 7 / scale;
             foreach (var entity in ActiveEntities)
             {
-                if (entity.IsAnnotation) continue;
+                if (entity.IsAnnotation || !IsVisible(entity)) continue;
                 var b = entity.Bounds; b.Inflate(nearest, nearest);
                 // Ray and xline bounds hold only their base point, so they skip the box prefilter.
                 if (!entity.IsUnbounded && !b.Contains(point)) continue;

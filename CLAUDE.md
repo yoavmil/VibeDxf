@@ -69,3 +69,13 @@ All app sources sit flat in [src/](src/) alongside [src/VibeDxf.csproj](src/Vibe
 
   Leaders and their arrows are `IsAnnotation`.
 - `DxfPrimitives.DecodeText` handles \U+XXXX, %%d/p/c, %%nnn, %%%, removes %%u/%%o toggles, and turns caret-encoded control characters (`^I`) into spaces. MTEXT text runs use it too.
+- Layers and colors:
+  - **Reader:** `DxfDocument.Layers` comes from the LAYER table; on/frozen/plot describe the *saved* state. `DxfColors` resolves entity colors once at load:
+    - 420 true color wins, then ACI;
+    - 256 or absent is BYLAYER, using the effective layer;
+    - 0 is BYBLOCK, the enclosing insert's resolved color, threaded through `Process`/`Expand`/`ExpandDimension`/leader arrows as `blockColor`.
+
+    Colors are lifted to a luminance floor for the dark background. `DxfEntity.Category` replaces the old annotation flag (`IsAnnotation` is computed: Dimension and up). Each entity's `Group` indexes `DxfDocument.Groups` (layer, category).
+  - **Renderer:** vertices and instances carry packed RGBA plus the group index. The vertex shader reads a small dynamic `Buffer<uint>` of group flags (`GroupVisible`, `GroupAnnotation`) and moves hidden primitives out of the clip volume. `SetGroupFlags` and per-viewport freezes (`DxfViewportWindow.FrozenLayers`) only rewrite that table, never the geometry buffers. Annotations draw at 0.45 opacity and viewport passes at 0.6; monochrome is a constant-buffer switch.
+  - **Viewer and panel:** `DxfViewport` owns layer/category visibility (`SetLayerVisible`, `SetLayersVisible`, `SetCategoryVisible`, `ShowAll`, `ApplySavedLayerState`, `IsolateLayer`, `Monochrome`, `VisibilityChanged`). Hidden entities are excluded from `SelectAt` and the rebuilt `MidpointIndex`. `LayerPanel` (left column beside the HwndHost, `Ctrl+L`) mirrors that state.
+  - **Tests:** showcase captures of public drawings call `ShowAll()` first, because api-cw750 saves 13 of its 22 layers off. `Tests/LayerChecks.cs` uses ezdxf's `colors.dxf` and `viewport_frozen_layers.dxf`. Link `DxfColors.cs` in the checks and demo projects.

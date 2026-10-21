@@ -142,7 +142,7 @@ static class ViewportChecks
   Verify(ReferenceEquals(splineBuffer,Field(renderer!,"lineBuffer")),"spline selection, strategies and pan reuse GPU geometry");
   if(splineSample!=null)
   {
-   var sampleDoc=DxfReader.Load(splineSample);view.SetDocument(sampleDoc);Pump();
+   var sampleDoc=DxfReader.Load(splineSample);view.SetDocument(sampleDoc);view.ShowAll();Pump();
    var expectedVertices=sampleDoc.Entities.Where(e=>e.Kind!="POINT").SelectMany(e=>e.RenderCurves??e.Curves).Count(c=>c.IsLine&&!c.IsUnbounded)*2;
    Verify((int)Field(renderer!,"lineVertexCount")! == expectedVertices,
     "public drawing: all supported line and spline segments are uploaded to GPU");

@@ -32,7 +32,9 @@ public sealed class LayoutChecks
         PointIs(new(15,-5),twisted.ModelToPaper.Transform(new Point(0,50)));
         Assert.Equal(new Rect(0,0,20,8),doc.Layouts.Single().Bounds);
         Assert.Equal(1,doc.RenderingWarnings["VIEWPORT non-rectangular clipping is shown as its rectangle"]);
-        Assert.Equal(1,doc.RenderingWarnings["VIEWPORT frozen layers are still shown"]);
+        // Per-viewport freezes are applied now (no rendering note); "1F" names no layer in this fixture, so nothing is frozen.
+        Assert.False(doc.RenderingWarnings.ContainsKey("VIEWPORT frozen layers are still shown"));
+        Assert.Empty(plain.FrozenLayers);
     });
 
     [Fact]
@@ -99,7 +101,8 @@ public sealed class LayoutChecks
         try
         {
             var doc=DxfReader.Load(Path.Combine(AppContext.BaseDirectory,"Fixtures","Public",file));
-            window.Show();view.SetDocument(doc);Pump();
+            // Showcase: api-cw750 saves most layers off; show everything so each sheet is reviewable.
+            window.Show();view.SetDocument(doc);view.ShowAll();Pump();
             var renderer=(DrawingRenderer)Field(Field(view,"host")!,"<Renderer>k__BackingField")!;
             var lines=Field(renderer,"lineBuffer");
             for(int i=0;i<doc.Layouts.Count;i++)

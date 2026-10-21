@@ -38,6 +38,7 @@
  <DockPanel>
   <Menu DockPanel.Dock="Top" Background="#CBD7E3" Foreground="#18212B" Padding="8,5">
    <MenuItem Header="_File"><MenuItem Header="_Open DXF…" InputGestureText="Ctrl+O" Click="OpenClicked"/></MenuItem>
+   <MenuItem Header="_View"><MenuItem x:Name="PanelMenu" Header="_Layers panel" IsCheckable="True" InputGestureText="Ctrl+L" Click="PanelMenuClicked"/></MenuItem>
   </Menu>
   <Border DockPanel.Dock="Bottom" Background="#202C39" Padding="14,9">
    <Grid>
@@ -67,6 +68,14 @@
    AutomationProperties.Name="Model and layout tabs">
    <ListBox.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ListBox.ItemsPanel>
   </ListBox>
-  <local:DxfViewport x:Name="Viewer"/>
+  <!-- The panel sits beside the swap-chain HwndHost, never over it (WPF cannot draw over a child HWND). -->
+  <Grid>
+   <Grid.ColumnDefinitions>
+    <ColumnDefinition x:Name="PanelColumn" Width="0"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+   </Grid.ColumnDefinitions>
+   <local:LayerPanel x:Name="Layers"/>
+   <GridSplitter x:Name="PanelSplitter" Grid.Column="1" Width="4" HorizontalAlignment="Stretch" Background="#0D1218" Visibility="Collapsed"/>
+   <local:DxfViewport x:Name="Viewer" Grid.Column="2"/>
+  </Grid>
  </DockPanel>
 </Window>
