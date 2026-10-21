@@ -113,7 +113,7 @@ public sealed class LayoutChecks
     }));
 
     [Fact]
-    public void PublicSheetsAndAttributes()=>TestSupport.Run("api-cw750: four sheets, inactive-layout viewports and attribute text",()=>
+    public void PublicSheetsAttributesAndLeaders()=>TestSupport.Run("api-cw750: four sheets, inactive-layout viewports, attribute text and legacy leaders",()=>
     {
         var doc=DxfReader.Load(Path.Combine(AppContext.BaseDirectory,"Fixtures","Public","api-cw750-details.dxf"));
         Assert.Equal(["Sheet 1","Sheet 2","Sheet 3","Sheet 4"],doc.Layouts.Select(l=>l.Name));
@@ -132,5 +132,19 @@ public sealed class LayoutChecks
         Assert.Contains("1:2",doc.Layouts[2].Entities.Where(e=>e.Kind=="ATTRIB").Select(e=>e.Text));
         // Model-space callout bubbles carry sheet/detail numbers as attributes: "3" is six SHEETNO, one DETNO and one QTY value.
         Assert.Equal(8,doc.Entities.Count(e=>e.Kind=="ATTRIB"&&e.Text=="3"));
+        // LEADER 3584: style DIM1XP$7 (DIMASZ 0.118, DIMGAP 0.04), DSTYLE override DIMSCALE≈1, _OPEN arrow block.
+        var leader=doc.Entities.Single(e=>e.Handle=="3584");
+        Assert.Equal("LEADER",leader.Kind);Assert.True(leader.IsAnnotation);Assert.Empty(leader.FillContours);
+        var hook=leader.Curves[^1];
+        TestSupport.Near(0.04*1.000000001987403+0.9978881355932205,(hook.End-hook.Start).Length,1e-9);
+        var arrow=doc.Entities.Where(e=>e.Handle.StartsWith("3584/arrow/")).ToList();
+        Assert.Equal(3,arrow.Count);Assert.All(arrow,e=>Assert.True(e.IsAnnotation));
+        var tip=leader.Curves[0].Start;
+        // _OPEN: two barbs touching the tip (one drawn towards it, one away), each 0.118·√(1+1/36) long, plus the shaft.
+        var barb=0.118*1.000000001987403*Math.Sqrt(1+1/36d);
+        bool Barb(Curve c)=>(c.End-tip).Length<1e-9&&Math.Abs((c.Start-tip).Length-barb)<1e-9||
+            (c.Start-tip).Length<1e-9&&Math.Abs((c.End-tip).Length-barb)<1e-9;
+        Assert.Equal(2,arrow.Count(e=>Barb(e.Curves[0])));
+        Assert.Null(new MidpointIndex(doc.Entities).Find(leader.Curves[0].At(.5),1e-6));
     });
 }

@@ -49,8 +49,10 @@ public static class DxfReader
         for (int j = 0; j + 1 < pairs.Count; j++)
             if (pairs[j].Code == 9 && pairs[j].Value == "$INSUNITS")
                 doc.Units = pairs[j + 1].Value switch { "1" => "inches", "2" => "feet", "4" => "mm", "5" => "cm", "6" => "m", "0" => "drawing units (unitless)", var u => $"drawing units (INSUNITS={u})" };
+        bool metric=pairs.Zip(pairs.Skip(1)).Any(p=>p.First.Code==9&&p.First.Value=="$MEASUREMENT"&&p.Second.Value=="1");
         var blocks=new Dictionary<string,(Record Header,List<Record> Records)>(StringComparer.OrdinalIgnoreCase);
         var blockNames=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+        var dimStyles=new Dictionary<string,Record>(StringComparer.OrdinalIgnoreCase);
         var layoutRecords=new List<Record>();
         var entities=new List<Record>();string section="";List<Record>? blockRecords=null;
         for(int i=0;i<pairs.Count;)
@@ -62,6 +64,7 @@ public static class DxfReader
             if(record.Kind=="ENDSEC"){section="";continue;}
             if(section=="ENTITIES")entities.Add(record);
             else if(section=="TABLES"&&record.Kind=="BLOCK_RECORD")blockNames[record.S(5)]=record.S(2);
+            else if(section=="TABLES"&&record.Kind=="DIMSTYLE")dimStyles[record.S(2)]=record;
             else if(section=="OBJECTS"&&record.Kind=="LAYOUT")layoutRecords.Add(record);
             else if(section=="BLOCKS")
             {
@@ -191,7 +194,7 @@ public static class DxfReader
                 double N(int c,double fallback=0)=>record.N(c,fallback);
                 Point P(int x,int y)=>new(N(x),N(y));
                 // OCS parallel to XY is supported, including a reversed normal. General 3D is intentionally excluded.
-                if(record.Kind is "HATCH" or "POINT" or "SOLID" or "TEXT" or "INSERT" or "ATTDEF" or "ATTRIB" or "CIRCLE" or "ARC" or "LWPOLYLINE" or "DIMENSION" or "ARC_DIMENSION" or "LARGE_RADIAL_DIMENSION")
+                if(record.Kind is "HATCH" or "POINT" or "SOLID" or "TEXT" or "INSERT" or "ATTDEF" or "ATTRIB" or "CIRCLE" or "ARC" or "LWPOLYLINE" or "DIMENSION" or "ARC_DIMENSION" or "LARGE_RADIAL_DIMENSION" or "LEADER")
                 {
                     if(Math.Abs(N(210))>1e-9||Math.Abs(N(220))>1e-9||Math.Abs(Math.Abs(N(230,1))-1)>1e-9)
                     {Skip(record.Kind+" (3D extrusion)");continue;}
@@ -285,6 +288,59 @@ public static class DxfReader
                         }
                         catch(Exception ex) when(ex is ArgumentException or InvalidDataException){Skip("ATTRIB (invalid or unsupported)");}
                         break;
+                    case "LEADER":
+                    {
+                        // Follows ezdxf: arrow size DIMASZ·DIMSCALE from the style and its ACAD DSTYLE overrides,
+                        // arrow at the first vertex pointing away from the second, optional hook line to the text.
+                        var points=new List<Point>();
+                        for(int k=0;k+1<fields.Count;k++)
+                            if(fields[k].Code==10&&fields[k+1].Code==20&&
+                                double.TryParse(fields[k].Value,NumberStyles.Float,CultureInfo.InvariantCulture,out var px)&&
+                                double.TryParse(fields[k+1].Value,NumberStyles.Float,CultureInfo.InvariantCulture,out var py)&&
+                                double.IsFinite(px)&&double.IsFinite(py))points.Add(new(px,py));
+                        if(points.Count<2){Skip("LEADER (too few vertices)");break;}
+                        var style=dimStyles.GetValueOrDefault(S(3));var overrides=DimStyleOverrides(fields);
+                        double Style(int code,double fallback)=>
+                            overrides.TryGetValue(code,out var o)&&double.TryParse(o,NumberStyles.Float,CultureInfo.InvariantCulture,out var v)&&double.IsFinite(v)?v:
+                            style!=null&&style.Fields.Any(f=>f.Code==code)?style.N(code,fallback):fallback;
+                        var dimScale=Style(40,1);if(dimScale==0)dimScale=1;
+                        var arrowSize=Style(41,metric?2.5:0.1875)*dimScale;
+                        if(N(72)==1)Note("LEADER spline paths are shown as straight segments");
+                        if(N(73,3)==0&&N(75)==1&&Style(77,1)!=0&&N(41)>0)
+                        {
+                            var hook=new Vector(N(211,1),N(221));if(N(74)==1)hook=-hook;
+                            points.Add(points[^1]+hook*(Style(147,metric?0.625:0.0625)*dimScale+N(41)));
+                        }
+                        var leaderLines=points.Zip(points.Skip(1)).Where(s=>s.First!=s.Second).Select(s=>Curve.Line(s.First,s.Second)).ToList();
+                        List<Point[]> arrowFill=[];
+                        if(N(71,1)!=0&&arrowSize>0&&points[0]!=points[1])
+                        {
+                            var axis=points[0]-points[1];axis.Normalize();
+                            var arrowName=blockNames.GetValueOrDefault(overrides.GetValueOrDefault(341)??style?.S(341)??"","");
+                            if(arrowName.Length==0)
+                            {
+                                // Default closed filled arrowhead.
+                                var foot=points[0]-axis*arrowSize;var half=new Vector(-axis.Y,axis.X)*arrowSize/6;
+                                arrowFill.Add([points[0],foot+half,foot-half]);
+                            }
+                            else if(Enter("LEADER arrowhead",arrowName,stack,out var arrow))
+                            {
+                                try
+                                {
+                                    // Arrow blocks are unit size with the tip at the origin and the body along -X.
+                                    var arrowTransform=System.Windows.Media.Matrix.Identity;
+                                    arrowTransform.Translate(-arrow.Header.N(10),-arrow.Header.N(20));arrowTransform.Scale(arrowSize,arrowSize);
+                                    arrowTransform.Rotate(Math.Atan2(axis.Y,axis.X)*180/Math.PI);arrowTransform.Translate(points[0].X,points[0].Y);
+                                    arrowTransform.Append(matrix);
+                                    var arrowLayer=S(8,"0");if(arrowLayer=="0")arrowLayer=inheritedLayer;
+                                    Process(arrow.Records,arrowTransform,arrowLayer,$"{path}{S(5)}/arrow/",stack,true);
+                                }
+                                finally{stack.Remove(arrowName);}
+                            }
+                        }
+                        if(leaderLines.Count>0)Add(new DxfEntity("LEADER",S(8,"0"),S(5),leaderLines){FillContours=arrowFill,IsAnnotation=true});
+                        break;
+                    }
                     case "INSERT":
                         Expand(record,matrix,inheritedLayer,path,stack,annotation);break;
                     case "VIEWPORT":
@@ -350,13 +406,23 @@ public static class DxfReader
         var all=doc.Entities.Concat(doc.Layouts.SelectMany(l=>l.Entities)).ToList();
         // Fills are independent and Triangulate is pure; the renderer still concatenates them in entity order.
         Parallel.ForEach(all.Where(e=>e.FillContours.Count>0),e=>e.FillTriangles=DxfPrimitives.Triangulate(e.FillContours));
-        if(all.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text, attributes, dimensions, multileaders and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
+        if(all.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text, attributes, dimensions, leaders, multileaders and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
         return doc;
     }
     private sealed record Record(string Kind,List<Pair> Fields)
     {
         public string S(int code,string fallback="")=>Fields.FirstOrDefault(p=>p.Code==code)?.Value??fallback;
         public double N(int code,double fallback=0)=>double.TryParse(S(code),NumberStyles.Float,CultureInfo.InvariantCulture,out var n)&&double.IsFinite(n)?n:fallback;
+    }
+    // ACAD DSTYLE XDATA: 1070 dimension-variable code followed by its value (1040/1070/1000/1005).
+    private static Dictionary<int,string> DimStyleOverrides(List<Pair> fields)
+    {
+        var result=new Dictionary<int,string>();
+        int start=fields.FindIndex(f=>f.Code==1000&&f.Value=="DSTYLE");
+        if(start<0)return result;
+        for(int i=start+1;i+1<fields.Count&&fields[i].Code!=1001;i++)
+            if(fields[i].Code==1070&&int.TryParse(fields[i].Value,out var key)){result[key]=fields[i+1].Value;i++;}
+        return result;
     }
     private static List<Curve> Polyline(List<(Point P, double Bulge)> vs, bool closed)
     {
