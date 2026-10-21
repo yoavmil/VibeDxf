@@ -1,0 +1,9 @@
+VibeDxf for Windows x64
+
+Requires Windows 10 or later and the Microsoft .NET 10 Desktop Runtime (x64).
+The runtime is not bundled, downloaded, or installed by this installer.
+If it is missing, install the Windows x64 Desktop Runtime from:
+https://dotnet.microsoft.com/download/dotnet/10.0
+
+The .NET SDK is not required to run VibeDxf.
+Installation is for the current user and does not require administrator rights.
