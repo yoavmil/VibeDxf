@@ -57,6 +57,8 @@ public sealed class DrawingRenderer : IDisposable
     public System.Windows.Point Origin { get; private set; }
     public D2D.ID2D1Factory1 Factory2D => d2dFactory;
     public IDWriteFactory Write => dwrite;
+    // Allows offline rendering checks to read the completed GPU frame before flip-discard presentation.
+    internal Action? FrameRendered { get; set; }
 
     public DrawingRenderer(IntPtr hwnd, int width, int height)
     {
@@ -197,6 +199,7 @@ public sealed class DrawingRenderer : IDisposable
         d2d.BeginDraw();
         overlay(d2d);
         d2d.EndDraw();
+        FrameRendered?.Invoke();
         swapChain.Present(1, PresentFlags.None);
     }
 

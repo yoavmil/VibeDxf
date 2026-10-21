@@ -15,11 +15,12 @@ public partial class MainWindow : Window
             if (selected.Count == 2)
             {
                 var m = Viewer.Measurement!.Value;
-                Measurement.Text = $"{selected[0].Description} → {selected[1].Description} | Distance: {m.Distance:0.######}   ΔX: {m.B.X - m.A.X:+0.######;-0.######;0}   ΔY: {m.B.Y - m.A.Y:+0.######;-0.######;0}   [{Viewer.Document?.Units}]";
+                var approximate = selected.Any(t => t.Entity.Kind == "SPLINE") ? "≈ " : "";
+                Measurement.Text = $"{selected[0].Describe(Viewer.FirstStrategy)} → {selected[1].Describe(Viewer.SecondStrategy)} | {approximate}Distance: {m.Distance:0.######}   ΔX: {m.B.X - m.A.X:+0.######;-0.######;0}   ΔY: {m.B.Y - m.A.Y:+0.######;-0.######;0}   [{Viewer.Document?.Units}]";
             }
             else Measurement.Text = selected.Count == 1
-                ? $"Selected {selected[0].Description} • layer {selected[0].Entity.Layer} • handle {selected[0].Entity.Handle}. Select another element to measure."
-                : "Select two elements to measure their shortest distance.";
+                ? $"Selected {selected[0].Describe(Viewer.FirstStrategy)} • layer {selected[0].Entity.Layer} • handle {selected[0].Entity.Handle}. Select another element to measure."
+                : "Select two elements to measure their distance.";
         };
         PreviewKeyDown += async (_, e) =>
         {
@@ -32,6 +33,13 @@ public partial class MainWindow : Window
             var args = Environment.GetCommandLineArgs();
             if (args.Length > 1 && File.Exists(args[1])) await OpenFile(args[1]);
         };
+    }
+    private void StrategyChanged(object sender, RoutedEventArgs e)
+    {
+        // Unchecked can fire while InitializeComponent is still building the controls.
+        if (Viewer == null || FirstStrategyToggle == null || SecondStrategyToggle == null) return;
+        Viewer.FirstStrategy = FirstStrategyToggle.IsChecked == true ? MeasurementStrategy.Center : MeasurementStrategy.Closest;
+        Viewer.SecondStrategy = SecondStrategyToggle.IsChecked == true ? MeasurementStrategy.Center : MeasurementStrategy.Closest;
     }
     private async void OpenClicked(object sender, RoutedEventArgs e) => await ChooseFile();
     private async Task ChooseFile()

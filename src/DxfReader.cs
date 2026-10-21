@@ -46,6 +46,25 @@ public static class DxfReader
                 var curves = new List<Curve>();
                 switch (p.Value)
                 {
+                    case "SPLINE":
+                        try
+                        {
+                            double[] Values(int code) => fields.Where(f => f.Code == code)
+                                .Select(f => double.Parse(f.Value, CultureInfo.InvariantCulture)).ToArray();
+                            var xs=Values(10);var ys=Values(20);var zs=Values(30);
+                            var knots=Values(40);var weights=Values(41);
+                            if (xs.Length!=ys.Length || (zs.Length!=0 && (zs.Length!=xs.Length ||
+                                zs.Any(z => !double.IsFinite(z) || Math.Abs(z-zs[0])>1e-9))) ||
+                                N(72)!=knots.Length || N(73)!=xs.Length)
+                                throw new InvalidDataException("Inconsistent or nonplanar spline data.");
+                            curves=SplineGeometry.Flatten((int)N(71),xs.Select((x,i)=>new Point(x,ys[i])).ToArray(),knots,
+                                weights.Length==0 ? null : weights);
+                        }
+                        catch (Exception ex) when (ex is InvalidDataException or FormatException or OverflowException)
+                        {
+                            doc.Skipped["SPLINE (invalid or unsupported)"] = doc.Skipped.GetValueOrDefault("SPLINE (invalid or unsupported)")+1;
+                        }
+                        break;
                     case "LINE": curves.Add(Curve.Line(P(10, 20), P(11, 21))); break;
                     case "CIRCLE": case "ARC":
                         var r = N(40); if (r <= 0) break;
@@ -83,7 +102,7 @@ public static class DxfReader
             if (p.Value == "ENDSEC") section = "";
             i = end;
         }
-        if (doc.Entities.Count == 0) throw new InvalidDataException("No supported model/paper-space geometry was found. Supported: LINE, ARC, CIRCLE and 2D polylines. Blocks, text, hatches and splines are not supported yet.");
+        if (doc.Entities.Count == 0) throw new InvalidDataException("No supported model/paper-space geometry was found. Supported: LINE, ARC, CIRCLE, 2D polylines and control-point splines. Blocks, text and hatches are not supported yet.");
         return doc;
     }
     private static List<Curve> Polyline(List<(Point P, double Bulge)> vs, bool closed)

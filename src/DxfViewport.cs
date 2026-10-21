@@ -43,7 +43,24 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     public DxfDocument? Document { get; private set; }
     public IReadOnlyList<MeasurementTarget> Selected => selected;
     public ClosestPair? Measurement { get; private set; }
+    private MeasurementStrategy firstStrategy, secondStrategy;
+    public MeasurementStrategy FirstStrategy
+    {
+        get => firstStrategy;
+        set { if (firstStrategy == value) return; firstStrategy = value; UpdateMeasurement(); }
+    }
+    public MeasurementStrategy SecondStrategy
+    {
+        get => secondStrategy;
+        set { if (secondStrategy == value) return; secondStrategy = value; UpdateMeasurement(); }
+    }
     public event Action? SelectionChanged;
+
+    private void UpdateMeasurement()
+    {
+        Measurement = selected.Count == 2 ? selected[0].Distance(selected[1], FirstStrategy, SecondStrategy) : null;
+        Invalidate(); SelectionChanged?.Invoke();
+    }
 
     public DxfViewport()
     {
@@ -118,6 +135,12 @@ public sealed class DxfViewport : System.Windows.Controls.Border
                 using var geometry = BuildScreenGeometry(selected[i].Entity.Curves);
                 using var brush = dc.CreateSolidColorBrush(color);
                 dc.DrawGeometry(geometry, brush, 3);
+                if (selected[i].FixedPoint(i == 0 ? FirstStrategy : SecondStrategy) is Point center)
+                {
+                    var p = ScreenV(center);
+                    dc.DrawLine(p - new Vector2(6, 0), p + new Vector2(6, 0), brush, 2);
+                    dc.DrawLine(p - new Vector2(0, 6), p + new Vector2(0, 6), brush, 2);
+                }
             }
         }
         if (Measurement is { } m)
@@ -128,7 +151,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
             dc.DrawLine(a, b, brush, 1.5f, dash);
             dc.FillEllipse(new Ellipse(a, 4, 4), brush);
             dc.FillEllipse(new Ellipse(b, 4, 4), brush);
-            DrawText(dc, m.Distance.ToString("0.######"), 14, Green, FontWeight.SemiBold, (w, h) =>
+            DrawText(dc, (selected.Any(t => t.Entity.Kind == "SPLINE") ? "≈ " : "") + m.Distance.ToString("0.######"), 14, Green, FontWeight.SemiBold, (w, h) =>
                 new(Math.Clamp((a.X + b.X) / 2 + 10, 0, Math.Max(0, ActualWidth - w - 8)),
                     Math.Clamp((a.Y + b.Y) / 2 - 24, 0, Math.Max(0, ActualHeight - h - 8))), 4, 2);
         }
@@ -192,7 +215,8 @@ public sealed class DxfViewport : System.Windows.Controls.Border
                 var r = (float)(c.Radius * scale);
                 for (int i = 1; i <= count; i++)
                     sink.AddArc(new ArcSegment(ScreenV(c.At((double)i / count)), new Size(r, r), 0,
-                        c.Sweep > 0 ? SweepDirection.Clockwise : SweepDirection.CounterClockwise,
+                        // ScreenV flips Y, so positive DXF sweeps remain visually counterclockwise.
+                        c.Sweep > 0 ? SweepDirection.CounterClockwise : SweepDirection.Clockwise,
                         Math.Abs(c.Sweep / count) > Math.PI ? ArcSize.Large : ArcSize.Small));
             }
             sink.EndFigure(FigureEnd.Open);
@@ -248,9 +272,8 @@ public sealed class DxfViewport : System.Windows.Controls.Border
             if (selected.Count == 2) selected.Clear();
             selected.Add(target);
         }
-        Measurement = selected.Count == 2 ? selected[0].Distance(selected[1]) : null;
-        hoveredMidpoint = null; Invalidate();
-        SelectionChanged?.Invoke();
+        hoveredMidpoint = null;
+        UpdateMeasurement();
     }
     protected override void OnMouseMove(MouseEventArgs e)
     {

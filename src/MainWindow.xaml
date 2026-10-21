@@ -4,14 +4,43 @@
  xmlns:local="clr-namespace:VibeDxf"
  Icon="/Assets/VibeDxf.ico" Title="VibeDxf" Width="1280" Height="850" MinWidth="760" MinHeight="480"
  Background="#111820" Foreground="#DCE5EF" AllowDrop="True" Drop="FileDropped" DragOver="FileDragOver">
+ <Window.Resources>
+  <Style x:Key="StrategyToggle" TargetType="ToggleButton">
+   <Setter Property="Content" Value="Closest"/>
+   <Setter Property="MinWidth" Value="78"/>
+   <Setter Property="Padding" Value="10,5"/>
+   <Setter Property="Background" Value="#CBD7E3"/>
+   <Setter Property="Foreground" Value="#18212B"/>
+   <Setter Property="ToolTip" Value="Click to switch Center / Closest. Applies only to circles and arcs."/>
+   <Style.Triggers>
+    <Trigger Property="IsChecked" Value="True"><Setter Property="Content" Value="Center"/></Trigger>
+   </Style.Triggers>
+  </Style>
+ </Window.Resources>
  <DockPanel>
   <Menu DockPanel.Dock="Top" Background="#CBD7E3" Foreground="#18212B" Padding="8,5">
    <MenuItem Header="_File"><MenuItem Header="_Open DXF…" InputGestureText="Ctrl+O" Click="OpenClicked"/></MenuItem>
   </Menu>
   <Border DockPanel.Dock="Bottom" Background="#202C39" Padding="14,9">
-   <StackPanel><TextBlock x:Name="Measurement" FontSize="16" Foreground="#58D7C1" Text="Select two elements to measure their shortest distance."/>
-    <TextBlock x:Name="Status" Margin="0,5,0,0" Text="Open or drop a DXF file.  •  Wheel: zoom  •  Middle/right drag: pan  •  F: fit  •  Esc: clear selection"/>
-   </StackPanel>
+   <Grid>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <StackPanel Margin="0,0,16,0">
+     <TextBlock x:Name="Measurement" FontSize="16" Foreground="#58D7C1" TextWrapping="Wrap" Text="Select two elements to measure their distance."/>
+     <TextBlock x:Name="Status" Margin="0,5,0,0" TextWrapping="Wrap" Text="Open or drop a DXF file.  •  Wheel: zoom  •  Middle/right drag: pan  •  F: fit  •  Esc: clear selection"/>
+    </StackPanel>
+    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
+     <StackPanel Margin="0,0,10,0">
+      <TextBlock Text="1 · Orange" Foreground="Orange" Margin="0,0,0,4"/>
+      <ToggleButton x:Name="FirstStrategyToggle" Style="{StaticResource StrategyToggle}" IsChecked="False"
+       AutomationProperties.Name="First measurement strategy" Checked="StrategyChanged" Unchecked="StrategyChanged"/>
+     </StackPanel>
+     <StackPanel>
+      <TextBlock Text="2 · Blue" Foreground="DeepSkyBlue" Margin="0,0,0,4"/>
+      <ToggleButton x:Name="SecondStrategyToggle" Style="{StaticResource StrategyToggle}" IsChecked="False"
+       AutomationProperties.Name="Second measurement strategy" Checked="StrategyChanged" Unchecked="StrategyChanged"/>
+     </StackPanel>
+    </StackPanel>
+   </Grid>
   </Border>
   <local:DxfViewport x:Name="Viewer"/>
  </DockPanel>

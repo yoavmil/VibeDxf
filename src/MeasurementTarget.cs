@@ -1,19 +1,30 @@
 using System.Windows;
 namespace VibeDxf;
 
+public enum MeasurementStrategy { Closest, Center }
+
 /// <summary>A whole element or the exact midpoint of one of its straight segments.</summary>
 public sealed record MeasurementTarget(DxfEntity Entity, int? MidpointSegment = null)
 {
     public Point? Midpoint => MidpointSegment is int i ? Entity.Curves[i].At(0.5) : null;
     public string Description => MidpointSegment is null ? Entity.Kind : $"{Entity.Kind} midpoint";
-    public ClosestPair Distance(MeasurementTarget other)
+    // A polyline can contain several unrelated arc centers; only standalone arcs/circles use this strategy.
+    public Point? Center => MidpointSegment is null && (Entity.Kind is "CIRCLE" or "ARC") &&
+        Entity.Curves.Count == 1 && !Entity.Curves[0].IsLine ? Entity.Curves[0].Center : null;
+    public Point? FixedPoint(MeasurementStrategy strategy) => Midpoint ?? (strategy == MeasurementStrategy.Center ? Center : null);
+    public string Describe(MeasurementStrategy strategy) => strategy == MeasurementStrategy.Center && Center != null
+        ? $"{Entity.Kind} center" : Description;
+    public ClosestPair Distance(MeasurementTarget other, MeasurementStrategy strategy = MeasurementStrategy.Closest,
+        MeasurementStrategy otherStrategy = MeasurementStrategy.Closest)
     {
-        if (Midpoint is Point a)
+        var firstPoint = FixedPoint(strategy);
+        var secondPoint = other.FixedPoint(otherStrategy);
+        if (firstPoint is Point a)
         {
-            if (other.Midpoint is Point b) return new ClosestPair(a, b);
+            if (secondPoint is Point b) return new ClosestPair(a, b);
             return other.Entity.Curves.Select(c => new ClosestPair(a, c.Closest(a))).MinBy(p => p.Distance);
         }
-        if (other.Midpoint is Point point)
+        if (secondPoint is Point point)
             return Entity.Curves.Select(c => new ClosestPair(c.Closest(point), point)).MinBy(p => p.Distance);
         return Entity.Distance(other.Entity);
     }
@@ -27,7 +38,8 @@ public sealed class MidpointIndex
     private sealed record Entry(MeasurementTarget Target, Point Point);
     public MidpointIndex(IEnumerable<DxfEntity> entities)
     {
-        var entries = entities.SelectMany(e => e.Curves.Select((c, i) => (Curve: c, Index: i))
+        // Flattened spline chords are approximation details, not straight segments users can snap to.
+        var entries = entities.Where(e => e.Kind != "SPLINE").SelectMany(e => e.Curves.Select((c, i) => (Curve: c, Index: i))
             .Where(v => v.Curve.IsLine)
             .Select(v => new Entry(new MeasurementTarget(e, v.Index), v.Curve.At(0.5)))).ToArray();
         byX = entries.OrderBy(e => e.Point.X).ToArray();
