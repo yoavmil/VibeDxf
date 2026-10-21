@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
@@ -39,6 +40,11 @@ internal static class DxfPrimitives
         var ys=levels.Distinct().Order().ToArray();
         var result=new List<Point>();
         double X((Point A,Point B) e,double y)=>e.A.X+(y-e.A.Y)*(e.B.X-e.A.X)/(e.B.Y-e.A.Y);
+        // Sweep upwards keeping only edges spanning the current strip (minY < mid < maxY).
+        // Sorting by (x, edge index) matches a stable sort of all edges by x, so output is unchanged.
+        var minY=edges.Select(e=>Math.Min(e.A.Y,e.B.Y)).ToArray();var maxY=edges.Select(e=>Math.Max(e.A.Y,e.B.Y)).ToArray();
+        var byMinY=Enumerable.Range(0,edges.Length).OrderBy(i=>minY[i]).ToArray();
+        var spanning=new List<int>();var strip=new List<(double X,int Edge)>();int next=0;
         for(int i=0;i+1<ys.Length;i++)
         {
             var y0=ys[i];var y1=ys[i+1];var mid=(y0+y1)/2;
@@ -46,11 +52,15 @@ internal static class DxfPrimitives
             // Such strips have no reliable interior and can pair the wrong edges.
             var ulp=Math.Max(Math.Abs(Math.BitIncrement(y0)-y0),Math.Abs(Math.BitIncrement(y1)-y1));
             if(y1-y0<=8*ulp)continue;
-            var active=edges.Where(e=>mid>Math.Min(e.A.Y,e.B.Y)&&mid<Math.Max(e.A.Y,e.B.Y)).OrderBy(e=>X(e,mid)).ToArray();
-            for(int j=0;j+1<active.Length;j+=2)
+            while(next<byMinY.Length&&minY[byMinY[next]]<mid)spanning.Add(byMinY[next++]);
+            spanning.RemoveAll(e=>!(mid<maxY[e]));
+            strip.Clear();foreach(var e in spanning)strip.Add((X(edges[e],mid),e));
+            CollectionsMarshal.AsSpan(strip).Sort();
+            for(int j=0;j+1<strip.Count;j+=2)
             {
-                var a=new Point(X(active[j],y0),y0);var b=new Point(X(active[j+1],y0),y0);
-                var c=new Point(X(active[j+1],y1),y1);var d=new Point(X(active[j],y1),y1);
+                var left=edges[strip[j].Edge];var right=edges[strip[j+1].Edge];
+                var a=new Point(X(left,y0),y0);var b=new Point(X(right,y0),y0);
+                var c=new Point(X(right,y1),y1);var d=new Point(X(left,y1),y1);
                 result.AddRange([a,b,c,a,c,d]);
             }
         }

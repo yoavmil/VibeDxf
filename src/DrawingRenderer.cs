@@ -154,7 +154,7 @@ public sealed class DrawingRenderer : IDisposable
         var dots=entities.SelectMany(e=>e.RenderDots).SelectMany(p=>Enumerable.Repeat(F(p),4)).ToArray();
         dotBuffer?.Dispose();dotBuffer=null;dotVertexCount=dots.Length;
         if(dots.Length>0)dotBuffer=device.CreateBuffer(dots.AsSpan(),BindFlags.VertexBuffer,ResourceUsage.Immutable);
-        var triangles=entities.SelectMany(e=>DxfPrimitives.Triangulate(e.FillContours)).Select(F).ToArray();
+        var triangles=entities.SelectMany(e=>e.FillTriangles??DxfPrimitives.Triangulate(e.FillContours)).Select(F).ToArray();
         var points=entities.Where(e=>e.Kind=="POINT").SelectMany(e=>Enumerable.Repeat(F(e.Curves[0].Start),4)).ToArray();
         fillBuffer?.Dispose();pointBuffer?.Dispose();fillBuffer=pointBuffer=null;
         fillVertexCount=triangles.Length;pointVertexCount=points.Length;

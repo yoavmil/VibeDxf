@@ -144,6 +144,8 @@ public sealed class DxfEntity(string kind, string layer, string handle, List<Cur
     public string Handle { get; } = handle;
     public List<Curve> Curves { get; } = curves;
     public List<Point[]> FillContours { get; init; } = [];
+    // Load-time cache of DxfPrimitives.Triangulate(FillContours), filled by DxfReader off the UI thread.
+    public List<Point>? FillTriangles { get; set; }
     // Hatches measure/select their region boundary but render only fill or clipped pattern strokes.
     public List<Point[]>? RegionContours { get; init; }
     public List<Curve>? RenderCurves { get; init; }
