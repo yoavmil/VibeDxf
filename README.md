@@ -1,11 +1,15 @@
 # VibeDxf
 
+<img src="src/Assets/VibeDxf.svg" width="80" height="80" alt="VibeDxf icon">
+
+**[Download the Windows x64 installer](https://github.com/yoavmil/VibeDxf/releases/download/v0.1.0/VibeDxf-Setup-0.1.0-win-x64.exe)** · [All downloads and release notes](https://github.com/yoavmil/VibeDxf/releases/latest)
+
 A 2D DXF viewer for Windows that measures the shortest distance between any two elements. Written in C# / WPF on .NET 10, with GPU rendering through Direct3D 11 and Direct2D ([Vortice.Windows](https://github.com/amerkoleci/Vortice.Windows)).
 
 ## Requirements
 
 - Windows 10 or later
-- .NET 10 SDK
+- [.NET 10 **Desktop Runtime x64**](https://dotnet.microsoft.com/download/dotnet/10.0) to run the app. It is **not bundled or installed automatically**. The .NET SDK is needed only to build from source.
 - A Direct3D 11 capable GPU. Without one, the viewer falls back to WARP, Windows' software rasterizer.
 
 ## Build and run
@@ -18,6 +22,16 @@ dotnet run --project .\src\VibeDxf.csproj -c Release -- "path\to\drawing.dxf"
 ```
 
 The DXF path is optional; you can also open a file from the app. Package restore uses only nuget.org (see `nuget.config`).
+
+## Desktop app
+
+The desktop shortcut launches the published Release app at `artifacts/desktop/VibeDxf.exe`. To refresh it after code changes, close that copy of the viewer and run from the repository root:
+
+```powershell
+dotnet publish .\src\VibeDxf.csproj -c Release --no-self-contained -p:OutputPath=bin/DesktopBuild/ -o .\artifacts\desktop
+```
+
+The executable and window use `src/Assets/VibeDxf.ico`, a multi-resolution icon with 16–256 pixel frames. The editable vector source is `src/Assets/VibeDxf.svg`. Published binaries are ignored by Git.
 
 ## Controls
 
@@ -73,3 +87,9 @@ The checks are a console app with no test framework. They stop at the first fail
 - that pan, zoom, hover and selection reuse the uploaded GPU buffers
 
 Optionally, pass the path to the reference drawing `182N-RND_REV-A.DXF` (not committed to this repository) as an extra argument. The checks then also expect exactly 66,377 supported entities, none skipped.
+
+## Building an installer
+
+Install Inno Setup 6 and run `./packaging/Build-Installer.ps1` from PowerShell. It publishes a framework-dependent Windows x64 app, builds the per-user installer with the app icon, and creates a portable ZIP and SHA-256 checksums under `artifacts/release/<version>/downloads/`. No .NET runtime is bundled.
+
+The Windows release workflow tests the app, builds and silently verifies installation/uninstallation on GitHub Actions, creates the annotated Git tag, and publishes the downloads as a GitHub Release. Set `packaging/version.txt`, the project version, and release notes for a new release. Existing published versions are left unchanged.

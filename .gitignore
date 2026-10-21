@@ -8,3 +8,6 @@ TestResults/
 # Local profiler recordings
 ALT-F2/
 *.diagsession
+
+# Local desktop app publication
+/artifacts/
