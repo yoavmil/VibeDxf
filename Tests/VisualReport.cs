@@ -16,14 +16,33 @@ static class VisualReport
 {
  private static readonly List<(string Title,string Html)> drawings=[];
  private static readonly StringBuilder log=new();
- public static string DirectoryPath {get;}=Path.GetFullPath("artifacts/test-report");
+ private static void Illustration(string title,string html)
+ {
+  int index=drawings.FindIndex(d=>d.Title==title);
+  if(index>=0)drawings[index]=(title,html);else drawings.Add((title,html));
+ }
+ public static string DirectoryPath {get;}=FindReportDirectory();
+ private static string FindReportDirectory()
+ {
+  var requested=Environment.GetEnvironmentVariable("VIBEDXF_REPORT_DIRECTORY");
+  if(!string.IsNullOrWhiteSpace(requested))return Path.GetFullPath(requested);
+  for(var dir=new DirectoryInfo(AppContext.BaseDirectory);dir!=null;dir=dir.Parent)
+   if(File.Exists(Path.Combine(dir.FullName,"VibeDxf.sln")))return Path.Combine(dir.FullName,"artifacts","test-report");
+  return Path.GetFullPath("artifacts/test-report");
+ }
+ public static void RecordResult(string name,bool passed,string? details=null)
+ {
+  log.AppendLine((passed?"PASS ":"FAIL ")+name);
+  if(details!=null)log.AppendLine(details);
+ }
  private static string E(string text)=>WebUtility.HtmlEncode(text);
  private static string N(double n)=>n.ToString("0.###",CultureInfo.InvariantCulture);
- public static IDisposable Start()
+ public static IDisposable Start(bool captureConsole=true)
  {
   Directory.CreateDirectory(DirectoryPath);
   var output=Console.Out;var error=Console.Error;
-  Console.SetOut(new Tee(output));Console.SetError(new Tee(error));
+  drawings.Clear();log.Clear();
+  if(captureConsole){Console.SetOut(new Tee(output));Console.SetError(new Tee(error));}
   return new Session(output,error);
  }
  private sealed class Tee(TextWriter original):TextWriter
@@ -38,10 +57,11 @@ static class VisualReport
   {
    Console.SetOut(output);Console.SetError(error);
    var checks=log.ToString().Split('\n').Where(l=>l.StartsWith("PASS ")).ToArray();
+   var failures=log.ToString().Split('\n').Count(l=>l.StartsWith("FAIL "));
    var html=new StringBuilder("<!doctype html><meta charset='utf-8'><title>VibeDxf offline checks</title><style>body{font:15px system-ui;background:#111820;color:#dce5ef;margin:32px}h1{margin-bottom:6px}p{color:#aebdcb}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px}article{background:#202c39;padding:16px;border-radius:10px;overflow:hidden}svg,img{width:100%;background:#111820}svg{height:240px}h2{font-size:16px}li{padding:5px;color:#8ee3b7}pre{white-space:pre-wrap;background:#202c39;padding:16px}input{padding:10px;width:320px;margin:15px 0}a{color:#58d7c1}</style>");
-   html.Append($"<h1>VibeDxf offline checks</h1><p>{checks.Length} checks passed · exit code {Environment.ExitCode} · {DateTime.Now:yyyy-MM-dd HH:mm:ss}</p><p>Diagrams illustrate geometry inputs and measurements. Cards labeled GPU frame are actual Direct3D/Direct2D readbacks. The list below includes nonvisual checks too.</p><div class='grid'>");
+   html.Append($"<h1>VibeDxf offline checks</h1><p>{checks.Length} tests passed · {failures} failed · {DateTime.Now:yyyy-MM-dd HH:mm:ss}</p><p>Diagrams illustrate geometry inputs and measurements. Cards labeled GPU frame are actual Direct3D/Direct2D readbacks. The list below includes nonvisual checks too.</p><div class='grid'>");
    foreach(var (title,content) in drawings)html.Append($"<article><h2>{E(title)}</h2>{content}</article>");
-   html.Append("</div><h2>All passed checks</h2><input id='filter' placeholder='Filter checks…' oninput=\"document.querySelectorAll('li').forEach(e=>e.hidden=!e.textContent.toLowerCase().includes(this.value.toLowerCase()))\"><ol>");
+   html.Append("</div><h2>All passed checks</h2><input id='filter' placeholder='Filter checks and images…' oninput=\"document.querySelectorAll('li,article').forEach(e=>e.hidden=!e.textContent.toLowerCase().includes(this.value.toLowerCase()))\"><ol>");
    foreach(var check in checks)html.Append($"<li>{E(check.Trim())}</li>");
    html.Append($"</ol><details><summary>Full output / failure details</summary><pre>{E(log.ToString())}</pre></details>");
    File.WriteAllText(Path.Combine(DirectoryPath,"index.html"),html.ToString());
@@ -77,7 +97,7 @@ static class VisualReport
    }
    svg.Append($"<text x='10' y='228' fill='#dce5ef' font-size='12'>Distance {N(measurement.Distance)} · ΔX {N(measurement.B.X-measurement.A.X)} · ΔY {N(measurement.B.Y-measurement.A.Y)}</text>");
   }
-  svg.Append("</svg>");drawings.Add((title,svg.ToString()));
+  svg.Append("</svg>");Illustration(title,svg.ToString());
  }
  public sealed record Frame(int Width,int Height,byte[] Pixels)
  {
@@ -109,10 +129,11 @@ static class VisualReport
     for(int y=0;y<h;y++)Marshal.Copy(map.DataPointer+y*(int)map.RowPitch,pixels,y*w*4,w*4);
     frame=new Frame(w,h,pixels);
     var image=BitmapSource.Create(w,h,96,96,PixelFormats.Bgra32,null,pixels,w*4);
-    string filename=$"frame-{drawings.Count:000}.png";
+    int existing=drawings.FindIndex(d=>d.Title==$"GPU frame · {title}");
+    string filename=$"frame-{(existing>=0?existing:drawings.Count):000}.png";
     var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(image));
     using(var file=File.Create(Path.Combine(DirectoryPath,filename)))encoder.Save(file);
-    drawings.Add(($"GPU frame · {title}",$"<img alt='{E(title)}' src='{filename}'>"));
+    Illustration($"GPU frame · {title}",$"<img alt='{E(title)}' src='{filename}'>");
    }
    finally{context.Unmap(staging,0);}
   };

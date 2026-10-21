@@ -29,10 +29,8 @@ Constant-Z control points are projected into XY, as with the rest of this 2D vie
 From the repository root, after the dependencies have been restored:
 
 ```powershell
-dotnet run --project Tests/VibeDxf.Checks.csproj -c Release --no-restore
+dotnet test Tests/VibeDxf.Checks.csproj -c Release --no-restore
 
-# Also check the private reference drawing (not included in the repository):
-dotnet run --project Tests/VibeDxf.Checks.csproj -c Release --no-restore -- --spline-sample "C:\Users\Yoav Miller\Downloads\C25F_REV-A.DXF"
 ```
 
 Every run writes `artifacts/test-report/index.html` and its adjacent PNG files.
@@ -44,10 +42,12 @@ than fabricated screenshots. Keep the HTML and PNGs together when sharing it.
 Spline tests cover independent NURBS basis evaluation, rational weights, nonuniform
 and repeated knots, periodic domains, degenerate/invalid input, metadata, picking,
 GPU pixels for the curve/highlight/connector, spline-to-line/arc/spline distances,
-and reuse of GPU buffers. The optional C25F check expects 4,284 entities including
-315 splines, with none skipped, and captures the complete rendered drawing.
+and reuse of GPU buffers. The public `uncommon.dxf` fixture includes a spline. Both public fixtures verify
+exact parsed/skipped entity counts, GPU line uploads, and capture supported geometry.
+See [fixture coverage](Tests/Fixtures/Public/README.md); neither drawing is fully supported.
 
-The current checks are a console application, not a test-framework project, so
-Visual Studio Test Explorer does not discover them. Failures now print `FAIL` and
-return exit code 1; the viewport window closes in `finally`. This avoids the
-unhandled managed-exception dialog for ordinary test assertions.
+The checks use xUnit with the Visual Studio test adapter. Build the solution, then
+open **Test > Test Explorer** to discover, filter, and run individual named cases.
+Use `dotnet test --list-tests` to inspect discovery from the command line. Public
+fixture tests run offline without environment variables or private drawings. Assertion failures are reported by xUnit instead of escaping as
+unhandled process exceptions; viewport windows close in `finally`.

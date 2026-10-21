@@ -75,13 +75,13 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     {
         Document = doc; bounds = doc.Bounds;
         midpointIndex = new MidpointIndex(doc.Entities);
-        host.Renderer?.SetDrawing(doc.Entities.SelectMany(e => e.Curves), Center(bounds));
+        host.Renderer?.SetDrawing(doc.Entities, Center(bounds));
         ClearSelection(); Fit();
     }
     private static Point Center(Rect r) => r.IsEmpty ? default : new Point(r.Left + r.Width / 2, r.Top + r.Height / 2);
     internal void RendererCreated()
     {
-        if (Document != null) host.Renderer!.SetDrawing(Document.Entities.SelectMany(e => e.Curves), Center(bounds));
+        if (Document != null) host.Renderer!.SetDrawing(Document.Entities, Center(bounds));
         Invalidate();
     }
     public void Fit()
@@ -132,9 +132,14 @@ public sealed class DxfViewport : System.Windows.Controls.Border
             if (selected[i].Midpoint is Point point) DrawMidpointMarker(dc, ScreenV(point), color);
             else
             {
-                using var geometry = BuildScreenGeometry(selected[i].Entity.Curves);
+                var entity=selected[i].Entity;
+                var highlight=entity.Kind=="HATCH" && entity.RenderCurves is { } strokes
+                    ? entity.Curves.Concat(strokes) : entity.Curves;
+                using var geometry = BuildScreenGeometry(highlight);
                 using var brush = dc.CreateSolidColorBrush(color);
                 dc.DrawGeometry(geometry, brush, 3);
+                if(entity.Kind=="HATCH")
+                    foreach(var dot in entity.RenderDots)dc.FillEllipse(new Ellipse(ScreenV(dot),2,2),brush);
                 if (selected[i].FixedPoint(i == 0 ? FirstStrategy : SecondStrategy) is Point center)
                 {
                     var p = ScreenV(center);
@@ -151,7 +156,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
             dc.DrawLine(a, b, brush, 1.5f, dash);
             dc.FillEllipse(new Ellipse(a, 4, 4), brush);
             dc.FillEllipse(new Ellipse(b, 4, 4), brush);
-            DrawText(dc, (selected.Any(t => t.Entity.Kind == "SPLINE") ? "≈ " : "") + m.Distance.ToString("0.######"), 14, Green, FontWeight.SemiBold, (w, h) =>
+            DrawText(dc, (selected.Any(t => t.Entity.Kind == "SPLINE" || t.Entity.IsApproximate) ? "≈ " : "") + m.Distance.ToString("0.######"), 14, Green, FontWeight.SemiBold, (w, h) =>
                 new(Math.Clamp((a.X + b.X) / 2 + 10, 0, Math.Max(0, ActualWidth - w - 8)),
                     Math.Clamp((a.Y + b.Y) / 2 - 24, 0, Math.Max(0, ActualHeight - h - 8))), 4, 2);
         }
@@ -262,7 +267,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
             {
                 var b = entity.Bounds; b.Inflate(nearest, nearest);
                 if (!b.Contains(point)) continue;
-                var distance = entity.Curves.Min(c => (c.Closest(point) - point).Length);
+                var distance = (entity.Closest(point)-point).Length;
                 if (distance < nearest) { target = new MeasurementTarget(entity); nearest = distance; }
             }
         }

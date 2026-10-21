@@ -11,7 +11,7 @@ public sealed record MeasurementTarget(DxfEntity Entity, int? MidpointSegment = 
     // A polyline can contain several unrelated arc centers; only standalone arcs/circles use this strategy.
     public Point? Center => MidpointSegment is null && (Entity.Kind is "CIRCLE" or "ARC") &&
         Entity.Curves.Count == 1 && !Entity.Curves[0].IsLine ? Entity.Curves[0].Center : null;
-    public Point? FixedPoint(MeasurementStrategy strategy) => Midpoint ?? (strategy == MeasurementStrategy.Center ? Center : null);
+    public Point? FixedPoint(MeasurementStrategy strategy) => Midpoint ?? (Entity.Kind == "POINT" ? Entity.Curves[0].Start : strategy == MeasurementStrategy.Center ? Center : null);
     public string Describe(MeasurementStrategy strategy) => strategy == MeasurementStrategy.Center && Center != null
         ? $"{Entity.Kind} center" : Description;
     public ClosestPair Distance(MeasurementTarget other, MeasurementStrategy strategy = MeasurementStrategy.Closest,
@@ -22,10 +22,10 @@ public sealed record MeasurementTarget(DxfEntity Entity, int? MidpointSegment = 
         if (firstPoint is Point a)
         {
             if (secondPoint is Point b) return new ClosestPair(a, b);
-            return other.Entity.Curves.Select(c => new ClosestPair(a, c.Closest(a))).MinBy(p => p.Distance);
+            return new ClosestPair(a,other.Entity.Closest(a));
         }
         if (secondPoint is Point point)
-            return Entity.Curves.Select(c => new ClosestPair(c.Closest(point), point)).MinBy(p => p.Distance);
+            return new ClosestPair(Entity.Closest(point),point);
         return Entity.Distance(other.Entity);
     }
 }
@@ -39,8 +39,8 @@ public sealed class MidpointIndex
     public MidpointIndex(IEnumerable<DxfEntity> entities)
     {
         // Flattened spline chords are approximation details, not straight segments users can snap to.
-        var entries = entities.Where(e => e.Kind != "SPLINE").SelectMany(e => e.Curves.Select((c, i) => (Curve: c, Index: i))
-            .Where(v => v.Curve.IsLine)
+        var entries = entities.Where(e => e.Kind is not ("HATCH" or "SPLINE" or "TEXT" or "POINT") && !e.IsApproximate).SelectMany(e => e.Curves.Select((c, i) => (Curve: c, Index: i))
+            .Where(v => v.Curve.IsLine && v.Curve.Start != v.Curve.End)
             .Select(v => new Entry(new MeasurementTarget(e, v.Index), v.Curve.At(0.5)))).ToArray();
         byX = entries.OrderBy(e => e.Point.X).ToArray();
         byY = entries.OrderBy(e => e.Point.Y).ToArray();

@@ -26,8 +26,13 @@ I use VS2026. The build and run are straightfoward.
 
 ## Supported DXF
 
-Reads ASCII DXF LINE, ARC, CIRCLE, LWPOLYLINE and legacy 2D POLYLINE entities, including curved bulge segments, plus control-point SPLINE curves. Spline distances are approximate. Each polyline is one selectable element. Entity type, layer and handle are kept.
+Reads ASCII DXF LINE, ARC, CIRCLE, LWPOLYLINE and legacy 2D POLYLINE entities, including curved bulge segments, plus control-point SPLINE curves, POINT markers, filled SOLID faces, single-line TEXT and HATCH areas. Blocks and INSERTs are expanded with nested placement, rotation, scaling, mirroring and rectangular arrays. Click an individual block child to select or measure it. Entity type, layer and instance handle path are kept.
 
-Not supported yet: INSERT/block references, text, dimensions, hatches, ellipses, binary DXF, and 3D/OCS geometry. Unsupported entity types are counted in the footer. All supported ENTITIES records are shown together, without layout filtering, layer visibility, colors or linetypes. Non-ASCII layer names from legacy code pages may need encoding support.
+Text uses an Arial font substitute and supports placement, rotation, width, oblique angle, mirroring and alignment. Original SHX/custom font styles are not reproduced. Text and splines use load-time outline approximations; nonuniformly scaled circular curves become approximate ellipses. Their measurements are marked ≈. Solid distances include the filled interior; point markers measure from their exact coordinate.
+
+
+Hatches support solid fills, stored line patterns with dashes/dots, holes and island styles, and polyline, arc, ellipse or control-point spline boundaries. Select a hatch to highlight its pattern strokes, dots and stored contours; measurements use its region rather than individual pattern strokes. Hatch boundaries are read as saved, so a non-associative hatch can differ from nearby outlines.
+
+Not supported yet: gradient hatches, excessively dense hatch patterns, MTEXT, variable attributes, dimensions, standalone ELLIPSE entities, binary DXF, external references, block clipping/dynamic block behavior and general 3D/OCS geometry. XY-plane OCS with either normal direction is supported for the new planar primitives and inserts. Unsupported entity types trigger a warning and are counted in the footer. All supported ENTITIES records are shown together, without layout filtering, layer visibility, colors or linetypes. Non-ASCII layer names from legacy code pages may need encoding support.
 
 Units come from `$INSUNITS` when present; otherwise the footer says the drawing units are unspecified. No unit conversion is applied.

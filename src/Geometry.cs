@@ -126,6 +126,31 @@ public sealed class DxfEntity(string kind, string layer, string handle, List<Cur
     public string Layer { get; } = layer;
     public string Handle { get; } = handle;
     public List<Curve> Curves { get; } = curves;
+    public List<Point[]> FillContours { get; init; } = [];
+    // Hatches measure/select their region boundary but render only fill or clipped pattern strokes.
+    public List<Point[]>? RegionContours { get; init; }
+    public List<Curve>? RenderCurves { get; init; }
+    public List<Point> RenderDots { get; init; } = [];
+    public string? Text { get; init; }
+    public string? InstancePath { get; init; }
+    public bool IsApproximate { get; init; }
+    public bool Contains(Point p)
+    {
+        bool inside=false;
+        foreach(var polygon in RegionContours ?? FillContours)
+            for(int i=0,j=polygon.Length-1;i<polygon.Length;j=i++)
+            {
+                var a=polygon[i];var b=polygon[j];
+                if((a.Y>p.Y)!=(b.Y>p.Y)&&p.X<(b.X-a.X)*(p.Y-a.Y)/(b.Y-a.Y)+a.X)inside=!inside;
+            }
+        return inside;
+    }
+    public Point Closest(Point p) => Contains(p)?p:Curves.MinBy(c=>(c.Closest(p)-p).LengthSquared)!.Closest(p);
     public Rect Bounds { get; } = curves.Aggregate(Rect.Empty, (r, c) => { r.Union(c.Bounds); return r; });
-    public ClosestPair Distance(DxfEntity other) => Curves.SelectMany(a => other.Curves.Select(b => Curve.Distance(a, b))).MinBy(p => p.Distance);
+    public ClosestPair Distance(DxfEntity other)
+    {
+        foreach(var c in Curves)if(other.Contains(c.Start))return new(c.Start,c.Start);
+        foreach(var c in other.Curves)if(Contains(c.Start))return new(c.Start,c.Start);
+        return Curves.SelectMany(a=>other.Curves.Select(b=>Curve.Distance(a,b))).MinBy(p=>p.Distance);
+    }
 }

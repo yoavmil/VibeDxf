@@ -1,20 +1,18 @@
 using System.Windows;
-using System.Diagnostics;
 using System.IO;
 using VibeDxf;
-using var visualReport = VisualReport.Start();
-try
+
+static class GeometryChecks
 {
-int count = 0;
+ public static List<CheckCase> BuildCases()
+ {
+var cases = new List<CheckCase>();
 void Check(string name, Curve a, Curve b, double expected)
 {
-    var actual = Curve.Distance(a, b);
+    var actual=Curve.Distance(a,b);var reverse=Curve.Distance(b,a);
     VisualReport.Drawing(name,[a],[b],actual);
-    if (Math.Abs(actual.Distance - expected) > 1e-8) throw new Exception($"{name}: expected {expected}, got {actual.Distance}");
-    var reverse = Curve.Distance(b, a);
-    if (Math.Abs(reverse.Distance - expected) > 1e-8) throw new Exception($"{name}: symmetry failed");
-    if ((a.Closest(actual.A) - actual.A).Length > 1e-7 || (b.Closest(actual.B) - actual.B).Length > 1e-7) throw new Exception($"{name}: closest point outside geometry");
-    Console.WriteLine($"PASS {name}: {actual.Distance:0.######}"); count++;
+    cases.Add(new(name,Math.Abs(actual.Distance-expected)<1e-8 && Math.Abs(reverse.Distance-expected)<1e-8 &&
+        (a.Closest(actual.A)-actual.A).Length<1e-7 && (b.Closest(actual.B)-actual.B).Length<1e-7));
 }
 Curve L(double x, double y, double x2, double y2) => Curve.Line(new(x, y), new(x2, y2));
 Curve C(double x, double y, double r) => Curve.Arc(new(x,y),r,0,Math.Tau);
@@ -33,7 +31,7 @@ Check("concentric circles", C(0,0,10), C(0,0,2), 8);
 Check("intersecting circles", C(0,0,3), C(4,0,3), 0);
 Check("arc endpoint", Curve.Arc(new(0,0),2,0,Math.PI/2), L(-2,-2,-2,-2), Math.Sqrt(20));
 Check("clockwise arc", Curve.Arc(new(0,0),2,0,-Math.PI/2), L(0,-4,0,-4), 2);
-void Verify(bool ok, string name) { if (!ok) throw new Exception(name); Console.WriteLine("PASS " + name); count++; }
+void Verify(bool ok, string name) => cases.Add(new(name,ok));
 var firstLine = new DxfEntity("LINE", "0", "A", [L(0,0,10,0)]);
 var secondLine = new DxfEntity("LINE", "0", "B", [L(8,4,8,10)]);
 var firstMid = new MeasurementTarget(firstLine, 0);
@@ -61,31 +59,13 @@ try
         "10", "-1", "20", "0", "42", "1", "10", "1", "20", "0", "0", "ENDSEC", "0", "EOF" });
     var parsed = DxfReader.Load(fixture);
     var entity = parsed.Entities.Single();
-    if (parsed.Units != "mm" || entity.Layer != "TEST" || entity.Handle != "A1" || parsed.Skipped.Count != 0 ||
-        Math.Abs(entity.Curves.Single().Radius - 1) > 1e-10 || Math.Abs(entity.Curves.Single().Sweep - Math.PI) > 1e-10)
-        throw new Exception("DXF units, metadata or bulge parsing failed.");
-    Console.WriteLine("PASS parser units, metadata and bulge"); count++;
+    Verify(parsed.Units == "mm" && entity.Layer == "TEST" && entity.Handle == "A1" && parsed.Skipped.Count == 0 &&
+        Math.Abs(entity.Curves.Single().Radius-1)<1e-10 && Math.Abs(entity.Curves.Single().Sweep-Math.PI)<1e-10,
+        "parser units, metadata and bulge");
 }
 finally { File.Delete(fixture); }
-if (args.Length > 0 && args[0] != "--spline-sample")
-{
-    var sw = Stopwatch.StartNew(); var doc = DxfReader.Load(args[0]);
-    if (doc.Entities.Count != 66377 || doc.Skipped.Count > 0) throw new Exception($"Unexpected sample contents: {doc.Entities.Count} entities; {string.Join(",",doc.Skipped.Keys)}");
-    Console.WriteLine($"PASS sample: {doc.Entities.Count:N0} entities in {sw.ElapsedMilliseconds} ms; bounds={doc.Bounds}; units={doc.Units}"); count++;
-}
-Exception? viewportError = null;
-count += MeasurementStrategyChecks.Run();
-count += SplineChecks.Run(args.Length==2 && args[0]=="--spline-sample" ? args[1] : null);
-var viewportCount = 0;
-var viewportThread = new Thread(() => { try { viewportCount = ViewportChecks.Run(args.Length==2 && args[0]=="--spline-sample" ? args[1] : null); } catch (Exception e) { viewportError = e; } });
-viewportThread.SetApartmentState(ApartmentState.STA); viewportThread.Start(); viewportThread.Join();
-if (viewportError != null) throw new Exception("Viewport checks failed", viewportError);
-count += viewportCount;
-Console.WriteLine($"{count} checks passed.");
-}
-catch(Exception ex)
-{
-    Console.Error.WriteLine("FAIL " + ex);
-    Environment.ExitCode = 1;
+
+ return cases;
+ }
 }
 

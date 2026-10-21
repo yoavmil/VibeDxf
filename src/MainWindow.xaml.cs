@@ -15,7 +15,7 @@ public partial class MainWindow : Window
             if (selected.Count == 2)
             {
                 var m = Viewer.Measurement!.Value;
-                var approximate = selected.Any(t => t.Entity.Kind == "SPLINE") ? "≈ " : "";
+                var approximate = selected.Any(t => t.Entity.Kind == "SPLINE" || t.Entity.IsApproximate) ? "≈ " : "";
                 Measurement.Text = $"{selected[0].Describe(Viewer.FirstStrategy)} → {selected[1].Describe(Viewer.SecondStrategy)} | {approximate}Distance: {m.Distance:0.######}   ΔX: {m.B.X - m.A.X:+0.######;-0.######;0}   ΔY: {m.B.Y - m.A.Y:+0.######;-0.######;0}   [{Viewer.Document?.Units}]";
             }
             else Measurement.Text = selected.Count == 1
@@ -58,7 +58,12 @@ public partial class MainWindow : Window
             Viewer.SetDocument(doc);
             Title = $"VibeDxf — {Path.GetFileName(path)}";
             Status.Text = $"{doc.Entities.Count:N0} elements • {doc.Units} • Wheel: zoom • Middle/right drag: pan • Triangle: midpoint • Shift+click: whole element • F: fit • Esc: clear";
-            if (doc.Skipped.Count > 0) Status.Text += " • Skipped: " + string.Join(", ", doc.Skipped.Select(p => $"{p.Key} ({p.Value})"));
+            if(doc.Entities.Any(e=>e.Text!=null)) Status.Text += " • Text font: Arial substitute";
+            if (doc.UnsupportedWarning is { } warning)
+            {
+                Status.Text += " • WARNING: incomplete drawing • Skipped: " + string.Join(", ", doc.Skipped.Select(p => $"{p.Key} ({p.Value})"));
+                MessageBox.Show(this, warning, "Unsupported DXF elements", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
         catch (Exception ex)
         {

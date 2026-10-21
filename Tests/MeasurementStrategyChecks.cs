@@ -3,10 +3,10 @@ using VibeDxf;
 
 static class MeasurementStrategyChecks
 {
- public static int Run()
+ public static List<CheckCase> BuildCases()
  {
-  int count=0;
-  void Verify(bool ok,string name){if(!ok)throw new Exception(name);Console.WriteLine("PASS "+name);count++;}
+  var cases=new List<CheckCase>();
+  void Verify(bool ok,string name) => cases.Add(new(name,ok));
   MeasurementTarget Round(string kind,Point center,double radius,double start=0,double sweep=Math.Tau) =>
    new(new DxfEntity(kind,"0","",[Curve.Arc(center,radius,start,sweep)]));
   var closest=MeasurementStrategy.Closest;var center=MeasurementStrategy.Center;
@@ -53,6 +53,6 @@ static class MeasurementStrategyChecks
    "arc-shaped polylines ignore center strategy");
   Verify(a.Describe(center)=="CIRCLE center" && a.Describe(closest)=="CIRCLE" && midpoint.Describe(center)=="LINE midpoint",
    "selection descriptions identify active centers only");
-  return count;
+  return cases;
  }
 }

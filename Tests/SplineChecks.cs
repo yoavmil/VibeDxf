@@ -5,10 +5,10 @@ using VibeDxf;
 
 static class SplineChecks
 {
- public static int Run(string? sample=null)
+ public static List<CheckCase> BuildCases()
  {
-  int count=0;
-  void Verify(bool ok,string name){if(!ok)throw new Exception(name);Console.WriteLine("PASS "+name);count++;}
+  var cases=new List<CheckCase>();
+  void Verify(bool ok,string name) => cases.Add(new(name,ok));
   var points=new[]{new Point(0,0),new Point(0,2),new Point(2,-2),new Point(2,0)};
   var knots=new double[]{0,0,0,0,1,1,1,1};
   var cubic=SplineGeometry.Flatten(3,points,knots);
@@ -84,13 +84,6 @@ static class SplineChecks
    Verify(mixed.Entities.Count==1 && mixed.Skipped.Values.Sum()==1,"invalid spline does not discard valid drawing geometry");
   }
   finally{File.Delete(path);}
-  if(sample!=null)
-  {
-   var watch=System.Diagnostics.Stopwatch.StartNew();var doc=DxfReader.Load(sample);
-   Verify(doc.Entities.Count==4284 && doc.Entities.Count(e=>e.Kind=="SPLINE")==315 && doc.Skipped.Count==0,
-    $"C25F: all 4,284 entities including 315 splines loaded in {watch.ElapsedMilliseconds} ms");
-   Console.WriteLine($"Spline line segments: {doc.Entities.Where(e=>e.Kind=="SPLINE").Sum(e=>e.Curves.Count):N0}");
-  }
-  return count;
+  return cases;
  }
 }

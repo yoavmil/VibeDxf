@@ -21,6 +21,11 @@ public sealed class DrawingRenderer : IDisposable
         cbuffer Camera : register(b0) { float4 xform; float4 color; float segments; float3 pad; };
         float4 Project(float2 p) { return float4(p * xform.xy + xform.zw, 0, 1); }
         float4 LineVS(float2 p : POSITION) : SV_Position { return Project(p); }
+        float4 PointVS(float2 p : POSITION, uint id : SV_VertexID) : SV_Position
+        {
+            float2 offsets[4] = {float2(-1,0),float2(1,0),float2(0,-1),float2(0,1)};
+            float4 q=Project(p); q.xy+=offsets[id%4]*pad.xy; return q;
+        }
         float4 ArcVS(float2 center : CENTER, float radius : RADIUS, float2 angles : ANGLES, uint id : SV_VertexID) : SV_Position
         {
             float a = angles.x + angles.y * (id / segments);
@@ -38,7 +43,7 @@ public sealed class DrawingRenderer : IDisposable
     private readonly ID3D11Device device;
     private readonly ID3D11DeviceContext context;
     private readonly IDXGISwapChain1 swapChain;
-    private readonly ID3D11VertexShader lineShader, arcShader;
+    private readonly ID3D11VertexShader lineShader, arcShader, pointShader;
     private readonly ID3D11PixelShader pixelShader;
     private readonly ID3D11InputLayout lineLayout, arcLayout;
     private readonly ID3D11Buffer constantBuffer;
@@ -49,8 +54,8 @@ public sealed class DrawingRenderer : IDisposable
     private readonly IDWriteFactory dwrite;
     private ID3D11RenderTargetView? renderTarget;
     private D2D.ID2D1Bitmap1? d2dTarget;
-    private ID3D11Buffer? lineBuffer, arcBuffer;
-    private int lineVertexCount;
+    private ID3D11Buffer? lineBuffer, arcBuffer, fillBuffer, pointBuffer, dotBuffer;
+    private int lineVertexCount,fillVertexCount,pointVertexCount,dotVertexCount;
     private ArcBucket[] buckets = [];
     private int width, height;
     /// <summary>World origin subtracted before converting to float, so large DXF coordinates keep precision.</summary>
@@ -82,6 +87,7 @@ public sealed class DrawingRenderer : IDisposable
         var arcCode = Compiler.Compile(ShaderSource, "ArcVS", "drawing.hlsl", "vs_4_0");
         lineShader = device.CreateVertexShader(lineCode.Span);
         arcShader = device.CreateVertexShader(arcCode.Span);
+        pointShader = device.CreateVertexShader(Compiler.Compile(ShaderSource,"PointVS","drawing.hlsl","vs_4_0").Span);
         pixelShader = device.CreatePixelShader(Compiler.Compile(ShaderSource, "PS", "drawing.hlsl", "ps_4_0").Span);
         lineLayout = device.CreateInputLayout([new InputElementDescription("POSITION", 0, Format.R32G32_Float, 0, 0)], lineCode.Span);
         arcLayout = device.CreateInputLayout([
@@ -100,13 +106,16 @@ public sealed class DrawingRenderer : IDisposable
         CreateTargets();
     }
 
-    public void SetDrawing(IEnumerable<Curve> curves, System.Windows.Point origin)
+    public void SetDrawing(IEnumerable<Curve> curves, System.Windows.Point origin) => SetDrawing([new DxfEntity("LINE","0","",curves.ToList())],origin);
+
+    public void SetDrawing(IEnumerable<DxfEntity> drawing, System.Windows.Point origin)
     {
         Origin = origin;
         var lines = new List<Vector2>();
         var arcs = new List<ArcInstance>();
         Vector2 F(System.Windows.Point p) => new((float)(p.X - origin.X), (float)(p.Y - origin.Y));
-        foreach (var c in curves)
+        var entities=drawing.ToArray();
+        foreach (var c in entities.Where(e=>e.Kind!="POINT").SelectMany(e=>e.RenderCurves??e.Curves))
             if (c.IsLine) { lines.Add(F(c.Start)); lines.Add(F(c.End)); }
             else arcs.Add(new ArcInstance(F(c.Center), (float)c.Radius, (float)c.Angle, (float)c.Sweep));
         arcs.Sort((a, b) => a.Radius.CompareTo(b.Radius));
@@ -122,6 +131,15 @@ public sealed class DrawingRenderer : IDisposable
         if (arcs.Count > 0) arcBuffer = device.CreateBuffer(CollectionsMarshal.AsSpan(arcs), BindFlags.VertexBuffer, ResourceUsage.Immutable);
         lineVertexCount = lines.Count;
         buckets = [.. bucketList];
+        var dots=entities.SelectMany(e=>e.RenderDots).SelectMany(p=>Enumerable.Repeat(F(p),4)).ToArray();
+        dotBuffer?.Dispose();dotBuffer=null;dotVertexCount=dots.Length;
+        if(dots.Length>0)dotBuffer=device.CreateBuffer(dots.AsSpan(),BindFlags.VertexBuffer,ResourceUsage.Immutable);
+        var triangles=entities.SelectMany(e=>DxfPrimitives.Triangulate(e.FillContours)).Select(F).ToArray();
+        var points=entities.Where(e=>e.Kind=="POINT").SelectMany(e=>Enumerable.Repeat(F(e.Curves[0].Start),4)).ToArray();
+        fillBuffer?.Dispose();pointBuffer?.Dispose();fillBuffer=pointBuffer=null;
+        fillVertexCount=triangles.Length;pointVertexCount=points.Length;
+        if(triangles.Length>0)fillBuffer=device.CreateBuffer(triangles.AsSpan(),BindFlags.VertexBuffer,ResourceUsage.Immutable);
+        if(points.Length>0)pointBuffer=device.CreateBuffer(points.AsSpan(),BindFlags.VertexBuffer,ResourceUsage.Immutable);
     }
 
     private void CreateTargets()
@@ -153,7 +171,7 @@ public sealed class DrawingRenderer : IDisposable
         if (pixelWidth < 1 || pixelHeight < 1) return;
         Resize(pixelWidth, pixelHeight);
         context.ClearRenderTargetView(renderTarget!, background);
-        if (lineBuffer != null || arcBuffer != null)
+        if (lineBuffer != null || arcBuffer != null || fillBuffer != null || pointBuffer != null || dotBuffer != null)
         {
             context.OMSetRenderTargets(renderTarget!);
             context.RSSetViewport(0, 0, width, height);
@@ -168,7 +186,29 @@ public sealed class DrawingRenderer : IDisposable
                 Transform = new Vector4((float)(2 * scale / w), (float)(2 * scale / h),
                     (float)(2 * (Origin.X * scale + offset.X) / w - 1), (float)(1 - 2 * (offset.Y - Origin.Y * scale) / h)),
                 Color = lineColor,
+                Pad = new Vector3((float)(8/w),(float)(8/h),0),
             };
+            if(fillBuffer!=null)
+            {
+                SetConstants(constants);context.IASetInputLayout(lineLayout);
+                context.IASetPrimitiveTopology(PrimitiveTopology.TriangleList);
+                context.IASetVertexBuffer(0,fillBuffer,(uint)Marshal.SizeOf<Vector2>());
+                context.VSSetShader(lineShader);context.Draw((uint)fillVertexCount,0);
+            }
+            if(dotBuffer!=null)
+            {
+                var dotsConstants=constants;dotsConstants.Pad*=0.2f;SetConstants(dotsConstants);
+                context.IASetInputLayout(lineLayout);context.IASetPrimitiveTopology(PrimitiveTopology.LineList);
+                context.IASetVertexBuffer(0,dotBuffer,(uint)Marshal.SizeOf<Vector2>());
+                context.VSSetShader(pointShader);context.Draw((uint)dotVertexCount,0);
+            }
+            if(pointBuffer!=null)
+            {
+                SetConstants(constants);context.IASetInputLayout(lineLayout);
+                context.IASetPrimitiveTopology(PrimitiveTopology.LineList);
+                context.IASetVertexBuffer(0,pointBuffer,(uint)Marshal.SizeOf<Vector2>());
+                context.VSSetShader(pointShader);context.Draw((uint)pointVertexCount,0);
+            }
             if (lineBuffer != null)
             {
                 SetConstants(constants);
@@ -213,7 +253,7 @@ public sealed class DrawingRenderer : IDisposable
     public void Dispose()
     {
         d2d.Target = null;
-        foreach (IDisposable? d in new IDisposable?[] { d2dTarget, renderTarget, lineBuffer, arcBuffer, dwrite, d2d, d2dFactory,
+        foreach (IDisposable? d in new IDisposable?[] { d2dTarget, renderTarget, lineBuffer, arcBuffer, fillBuffer, pointBuffer, dotBuffer, pointShader, dwrite, d2d, d2dFactory,
             blend, rasterizer, constantBuffer, arcLayout, lineLayout, pixelShader, arcShader, lineShader, swapChain, context, device })
             d?.Dispose();
     }

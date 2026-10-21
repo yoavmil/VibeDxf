@@ -43,11 +43,12 @@ The window icon is also referenced in [src/MainWindow.xaml](src/MainWindow.xaml)
 4. Run the checks locally:
 
    ```powershell
-   dotnet run --project .\Tests\VibeDxf.Checks.csproj -c Release
+   dotnet test .\Tests\VibeDxf.Checks.csproj -c Release
    ```
 
-   Optionally append `-- "path\to\182N-RND_REV-A.DXF"` to verify the reference
-   drawing (66,377 supported entities, none skipped). That drawing is not in Git.
+   Public drawing fixtures are checked automatically, including GPU uploads and
+   exact unsupported-entity counts. No private drawing files are required.
+
 5. Commit the version, notes, and any app changes together, then push to `main`.
    **Pushing changes under `packaging/` or to the release workflow automatically
    starts publication for the version in `packaging/version.txt`.** Have all release
@@ -76,7 +77,8 @@ required. Release jobs are serialized with a repository-wide concurrency group.
 After resolving the version, the job:
 
 1. Skips checks, packaging, and publication if that version is already published.
-2. Runs the console checks, including off-screen rendering and GPU-buffer reuse checks.
+2. Runs the xUnit checks, including off-screen rendering and GPU-buffer reuse checks,
+   and uploads TRX results and the HTML visual report as a workflow artifact.
 3. Runs `Build-Installer.ps1` to build the framework-dependent distributions.
 4. Installs silently into a temporary folder, checks the executable exists and
    `coreclr.dll` is absent, then uninstalls and checks the executable was removed.

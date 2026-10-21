@@ -42,7 +42,15 @@ jobs:
       - name: Run checks
         if: steps.version.outputs.publish == 'True'
         shell: pwsh
-        run: dotnet run --project Tests/VibeDxf.Checks.csproj -c Release
+        run: dotnet test Tests/VibeDxf.Checks.csproj -c Release --logger "trx;LogFileName=checks.trx"
+      - name: Upload test results and visual report
+        if: always() && steps.version.outputs.publish == 'True'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: |
+            artifacts/test-report/
+            Tests/TestResults/
       - name: Build framework-dependent installer
         if: steps.version.outputs.publish == 'True'
         shell: pwsh

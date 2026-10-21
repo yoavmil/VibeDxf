@@ -5,10 +5,10 @@ using VibeDxf;
 
 static class ViewportChecks
 {
- public static int Run(string? splineSample=null)
+ public static List<CheckCase> BuildCases(string? splineSample=null)
  {
-  var count=0;
-  void Verify(bool ok,string name){if(!ok)throw new Exception(name);Console.WriteLine("PASS "+name);count++;}
+  var cases=new List<CheckCase>();
+  void Verify(bool ok,string name) => cases.Add(new(name,ok));
   const BindingFlags flags=BindingFlags.Instance|BindingFlags.NonPublic;
   object? Call(object target,string name,params object?[] args)=>target.GetType().GetMethod(name,flags)!.Invoke(target,args);
   object? Field(object target,string name)=>target.GetType().GetField(name,flags)!.GetValue(target);
@@ -143,14 +143,18 @@ static class ViewportChecks
   if(splineSample!=null)
   {
    var sampleDoc=DxfReader.Load(splineSample);view.SetDocument(sampleDoc);Pump();
-   var expectedVertices=sampleDoc.Entities.SelectMany(e=>e.Curves).Count(c=>c.IsLine)*2;
+   var expectedVertices=sampleDoc.Entities.Where(e=>e.Kind!="POINT").SelectMany(e=>e.RenderCurves??e.Curves).Count(c=>c.IsLine)*2;
    Verify((int)Field(renderer!,"lineVertexCount")! == expectedVertices,
-    "C25F all line and spline segments are uploaded to GPU");
-   VisualReport.Capture(renderer!,"C25F complete drawing with all 315 splines",()=>Call(view,"RenderNow"));
+    "public drawing: all supported line and spline segments are uploaded to GPU");
+   var expectedArcs=sampleDoc.Entities.SelectMany(e=>e.RenderCurves??e.Curves).Count(c=>!c.IsLine);
+   var buckets=(System.Collections.IEnumerable)Field(renderer!,"buckets")!;
+   var uploadedArcs=buckets.Cast<object>().Sum(b=>(int)b.GetType().GetProperty("Count")!.GetValue(b)!);
+   Verify(uploadedArcs==expectedArcs,"public drawing: all supported arcs are uploaded to GPU");
+   VisualReport.Capture(renderer!,System.IO.Path.GetFileName(splineSample)+" (supported geometry)",()=>Call(view,"RenderNow"));
   }
   window.Close();Pump();
   Verify(Field(Field(view,"host")!,"<Renderer>k__BackingField")==null,"closing the window disposes the renderer");
-  return count;
+  return cases;
   }
   finally { window.Close();Pump(); }
  }
