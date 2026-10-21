@@ -12,13 +12,13 @@ Upstream repositories publish under MIT; retain the adjacent dxf-parser-LICENSE.
 ## Current parser coverage
 
 - api-cw750-details.dxf: 1,281 loaded after INSERT expansion (673 LINE, 299 LWPOLYLINE, 61 ARC, 58 CIRCLE, 83 TEXT, 77 HATCH, 30 MTEXT). Skipped: 293 DIMENSION, 58 MULTILEADER, 52 ATTRIB, 11 LEADER, 3 3DSOLID, 3 VIEWPORT (420 records).
-- uncommon.dxf: 55 loaded (19 MTEXT, 19 LINE, 7 LWPOLYLINE, 6 POINT, 1 SPLINE, 1 CIRCLE, 1 ARC, 1 SOLID). Skipped: 13 DIMENSION, 3 RAY, 2 each 3D POLYLINE, LARGE_RADIAL_DIMENSION, MULTILEADER, VIEWPORT, XLINE; 1 each 3DSOLID, ARC_DIMENSION, ATTRIB, MESH (30 records).
+- uncommon.dxf: 60 loaded (19 MTEXT, 19 LINE, 7 LWPOLYLINE, 6 POINT, 3 RAY, 2 XLINE, 1 SPLINE, 1 CIRCLE, 1 ARC, 1 SOLID). Skipped: 13 DIMENSION, 2 each 3D POLYLINE, LARGE_RADIAL_DIMENSION, MULTILEADER, VIEWPORT; 1 each 3DSOLID, ARC_DIMENSION, ATTRIB, MESH (25 records).
 
 These counts describe ENTITIES records handled by the current reader; sequence/control records are not drawable entities. Referenced BLOCKS definitions are expanded recursively; counts include child entities and skipped child records per instance, not unused block definitions. Supported geometry includes model and paper space together; the reader implements planar XY OCS and 2D insertion transforms, not general OCS/3D transforms. A successfully parsed/uploaded entity does not guarantee a complete or geometrically faithful rendering of these drawings.
 
 ## Automated checks
 
-PublicDrawingAndGpuUpload has two Test Explorer cases. Each checks exact loaded counts, spline counts and skipped-type counts, opens an off-screen viewport, verifies the uploaded line/spline vertex count and arc instance count, and captures the supported geometry into artifacts/test-report/index.html. Captures provide visual review, not a pixel-perfect reference comparison for these drawings. Independent synthetic tests cover spline picking, rendering pixels and distances. These are compatibility samples, not a large-entity performance benchmark.
+PublicDrawingAndGpuUpload has two Test Explorer cases. Each checks exact loaded counts, spline counts and skipped-type counts, opens an off-screen viewport, verifies the uploaded line/spline vertex count, ray/xline instance count and arc instance count, and captures the supported geometry into artifacts/test-report/index.html. Captures provide visual review, not a pixel-perfect reference comparison for these drawings. Independent synthetic tests cover spline picking, rendering pixels and distances. These are compatibility samples, not a large-entity performance benchmark.
 
 ## Hatch regression atlas
 

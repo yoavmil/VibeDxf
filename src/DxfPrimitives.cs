@@ -116,7 +116,12 @@ internal static class DxfPrimitives
         var curves=new List<Curve>();
         foreach(var c in entity.Curves)
         {
-            if(c.IsLine)curves.Add(Curve.Line(matrix.Transform(c.Start),matrix.Transform(c.End)));
+            if(c.IsUnbounded)
+            {
+                var origin=matrix.Transform(c.Start);var direction=matrix.Transform(c.End-c.Start);
+                curves.Add(c.Extent==LineExtent.Ray?Curve.Ray(origin,direction):Curve.XLine(origin,direction));
+            }
+            else if(c.IsLine)curves.Add(Curve.Line(matrix.Transform(c.Start),matrix.Transform(c.End)));
             else if(similarity)
             {
                 var center=matrix.Transform(c.Center);var start=matrix.Transform(c.Start)-center;

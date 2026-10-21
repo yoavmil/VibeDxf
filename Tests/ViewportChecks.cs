@@ -143,9 +143,11 @@ static class ViewportChecks
   if(splineSample!=null)
   {
    var sampleDoc=DxfReader.Load(splineSample);view.SetDocument(sampleDoc);Pump();
-   var expectedVertices=sampleDoc.Entities.Where(e=>e.Kind!="POINT").SelectMany(e=>e.RenderCurves??e.Curves).Count(c=>c.IsLine)*2;
+   var expectedVertices=sampleDoc.Entities.Where(e=>e.Kind!="POINT").SelectMany(e=>e.RenderCurves??e.Curves).Count(c=>c.IsLine&&!c.IsUnbounded)*2;
    Verify((int)Field(renderer!,"lineVertexCount")! == expectedVertices,
     "public drawing: all supported line and spline segments are uploaded to GPU");
+   var expectedRays=sampleDoc.Entities.SelectMany(e=>e.RenderCurves??e.Curves).Count(c=>c.IsUnbounded);
+   Verify((int)Field(renderer!,"rayInstanceCount")! == expectedRays,"public drawing: all rays and xlines are uploaded to GPU");
    var expectedArcs=sampleDoc.Entities.SelectMany(e=>e.RenderCurves??e.Curves).Count(c=>!c.IsLine);
    var buckets=(System.Collections.IEnumerable)Field(renderer!,"buckets")!;
    var uploadedArcs=buckets.Cast<object>().Sum(b=>(int)b.GetType().GetProperty("Count")!.GetValue(b)!);

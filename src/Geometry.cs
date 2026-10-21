@@ -6,11 +6,27 @@ public readonly record struct ClosestPair(Point A, Point B)
     public double Distance => (B - A).Length;
 }
 
+// A straight curve is a segment, a RAY from Start through End, or an infinite XLINE through both.
+public enum LineExtent { Segment, Ray, Infinite }
+
 // All calculations use DXF XY coordinates; rendering never affects measurement precision.
-public sealed record Curve(Point Start, Point End, Point Center, double Radius, double Angle, double Sweep)
+public sealed record Curve(Point Start, Point End, Point Center, double Radius, double Angle, double Sweep, LineExtent Extent = LineExtent.Segment)
 {
     public bool IsLine => Radius == 0;
+    // For rays and xlines End is only a unit direction handle, not an endpoint.
+    public bool IsUnbounded => Extent != LineExtent.Segment;
+    public double TMin => Extent == LineExtent.Infinite ? double.NegativeInfinity : 0;
+    public double TMax => Extent == LineExtent.Segment ? 1 : double.PositiveInfinity;
+    private bool InRange(double t) => t >= TMin && t <= TMax;
     public static Curve Line(Point a, Point b) => new(a, b, default, 0, 0, 0);
+    public static Curve Ray(Point origin, Vector direction) => Unbounded(origin, direction, LineExtent.Ray);
+    public static Curve XLine(Point origin, Vector direction) => Unbounded(origin, direction, LineExtent.Infinite);
+    private static Curve Unbounded(Point origin, Vector direction, LineExtent extent)
+    {
+        if (!(direction.Length > 0) || !double.IsFinite(direction.Length)) throw new ArgumentException("Direction must be finite and nonzero.");
+        direction.Normalize();
+        return new(origin, origin + direction, default, 0, 0, 0, extent);
+    }
     public static Curve Arc(Point c, double r, double start, double sweep) =>
         new(c + new Vector(r * Math.Cos(start), r * Math.Sin(start)),
             c + new Vector(r * Math.Cos(start + sweep), r * Math.Sin(start + sweep)), c, r, start, sweep);
@@ -24,7 +40,7 @@ public sealed record Curve(Point Start, Point End, Point Center, double Radius, 
         if (IsLine)
         {
             var d = End - Start;
-            return Start + d * (d.LengthSquared == 0 ? 0 : Math.Clamp(Vector.Multiply(p - Start, d) / d.LengthSquared, 0, 1));
+            return Start + d * (d.LengthSquared == 0 ? 0 : Math.Clamp(Vector.Multiply(p - Start, d) / d.LengthSquared, TMin, TMax));
         }
         var v = p - Center;
         var a = Math.Atan2(v.Y, v.X);
@@ -35,7 +51,8 @@ public sealed record Curve(Point Start, Point End, Point Center, double Radius, 
     {
         get
         {
-            var r = new Rect(Start, End);
+            // Unbounded lines contribute only their base point to fit extents.
+            var r = IsUnbounded ? new Rect(Start, Start) : new Rect(Start, End);
             if (!IsLine) for (int i = 0; i < 4; i++)
             {
                 var a = i * Math.PI / 2;
@@ -57,7 +74,7 @@ public sealed record Curve(Point Start, Point End, Point Center, double Radius, 
             {
                 var t = Vector.CrossProduct(b.Start - a.Start, v) / det;
                 var s = Vector.CrossProduct(b.Start - a.Start, u) / det;
-                if (t >= 0 && t <= 1 && s >= 0 && s <= 1) { var p = a.Start + t * u; Add(p, p); }
+                if (a.InRange(t) && b.InRange(s)) { var p = a.Start + t * u; Add(p, p); }
             }
         }
         else if (a.IsLine || b.IsLine)
@@ -69,7 +86,7 @@ public sealed record Curve(Point Start, Point End, Point Center, double Radius, 
             {
                 var t = Vector.Multiply(arc.Center - line.Start, d) / d.LengthSquared;
                 var foot = line.Start + d * t;
-                if (t >= 0 && t <= 1)
+                if (line.InRange(t))
                 {
                     var n = new Vector(-d.Y, d.X); n.Normalize();
                     foreach (var sign in new[] { -1, 1 })
@@ -83,7 +100,7 @@ public sealed record Curve(Point Start, Point End, Point Center, double Radius, 
                 {
                     var dt = Math.Sqrt(Math.Max(0, offset2) / d.LengthSquared);
                     foreach (var s in new[] { t - dt, t + dt })
-                        if (s >= 0 && s <= 1)
+                        if (line.InRange(s))
                         {
                             var p = line.Start + s * d;
                             if (arc.ContainsAngle(Math.Atan2(p.Y - arc.Center.Y, p.X - arc.Center.X))) Candidate(p, p);
@@ -134,6 +151,7 @@ public sealed class DxfEntity(string kind, string layer, string handle, List<Cur
     public string? Text { get; init; }
     public string? InstancePath { get; init; }
     public bool IsApproximate { get; init; }
+    public bool IsUnbounded => Curves.Any(c => c.IsUnbounded);
     public bool Contains(Point p)
     {
         bool inside=false;

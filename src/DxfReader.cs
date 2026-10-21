@@ -176,6 +176,12 @@ public static class DxfReader
                     case "INSERT":
                         Expand(record,matrix,inheritedLayer,path,stack);break;
                     case "LINE": curves.Add(Curve.Line(P(10, 20), P(11, 21))); break;
+                    case "RAY": case "XLINE":
+                        // Base point and unit direction are WCS vectors, not OCS; only XY directions are drawable.
+                        var direction = P(11, 21) - new Point();
+                        if (Math.Abs(N(31)) > 1e-9) { Skip(p.Value + " (3D direction)"); break; }
+                        if (!(direction.Length > 1e-12)) { Skip(p.Value + " (invalid direction)"); break; }
+                        curves.Add(p.Value == "RAY" ? Curve.Ray(P(10, 20), direction) : Curve.XLine(P(10, 20), direction)); break;
                     case "CIRCLE": case "ARC":
                         var r = N(40); if (r <= 0) break;
                         var start = N(50) * Math.PI / 180;
@@ -213,7 +219,7 @@ public static class DxfReader
             }
         }
         Process(entities,System.Windows.Media.Matrix.Identity,"0","",new(StringComparer.OrdinalIgnoreCase));
-        if(doc.Entities.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, arcs, circles, 2D polylines, splines, solids, text and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
+        if(doc.Entities.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
         return doc;
     }
     private sealed record Record(string Kind,List<Pair> Fields)

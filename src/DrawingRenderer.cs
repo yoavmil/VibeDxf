@@ -31,21 +31,31 @@ public sealed class DrawingRenderer : IDisposable
             float a = angles.x + angles.y * (id / segments);
             return Project(center + radius * float2(cos(a), sin(a)));
         }
+        // Rays/xlines: extend ±3 NDC around the point nearest the screen centre; the rasterizer clips the rest.
+        float4 RayVS(float2 origin : ORIGIN, float2 direction : DIRECTION, float infinite : KIND, uint id : SV_VertexID) : SV_Position
+        {
+            float2 b = Project(origin).xy; float2 d = normalize(direction * xform.xy);
+            float s0 = -dot(b, d); float s = s0 + (id == 0 ? -3 : 3);
+            if (infinite == 0) s = max(s, 0);
+            return float4(b + d * s, 0, 1);
+        }
         float4 PS() : SV_Target { return color; }
         """;
     [StructLayout(LayoutKind.Sequential)]
     private struct Constants { public Vector4 Transform; public Vector4 Color; public float Segments; public Vector3 Pad; }
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct ArcInstance(Vector2 Center, float Radius, float Start, float Sweep);
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly record struct RayInstance(Vector2 Origin, Vector2 Direction, float Infinite);
     // Arcs are sorted by radius and drawn per power-of-two radius bucket, each with just enough segments.
     private readonly record struct ArcBucket(int Start, int Count, double MaxRadius);
 
     private readonly ID3D11Device device;
     private readonly ID3D11DeviceContext context;
     private readonly IDXGISwapChain1 swapChain;
-    private readonly ID3D11VertexShader lineShader, arcShader, pointShader;
+    private readonly ID3D11VertexShader lineShader, arcShader, pointShader, rayShader;
     private readonly ID3D11PixelShader pixelShader;
-    private readonly ID3D11InputLayout lineLayout, arcLayout;
+    private readonly ID3D11InputLayout lineLayout, arcLayout, rayLayout;
     private readonly ID3D11Buffer constantBuffer;
     private readonly ID3D11RasterizerState rasterizer;
     private readonly ID3D11BlendState blend;
@@ -54,8 +64,8 @@ public sealed class DrawingRenderer : IDisposable
     private readonly IDWriteFactory dwrite;
     private ID3D11RenderTargetView? renderTarget;
     private D2D.ID2D1Bitmap1? d2dTarget;
-    private ID3D11Buffer? lineBuffer, arcBuffer, fillBuffer, pointBuffer, dotBuffer;
-    private int lineVertexCount,fillVertexCount,pointVertexCount,dotVertexCount;
+    private ID3D11Buffer? lineBuffer, arcBuffer, fillBuffer, pointBuffer, dotBuffer, rayBuffer;
+    private int lineVertexCount,fillVertexCount,pointVertexCount,dotVertexCount,rayInstanceCount;
     private ArcBucket[] buckets = [];
     private int width, height;
     /// <summary>World origin subtracted before converting to float, so large DXF coordinates keep precision.</summary>
@@ -94,6 +104,12 @@ public sealed class DrawingRenderer : IDisposable
             new InputElementDescription("CENTER", 0, Format.R32G32_Float, 0, 0, InputClassification.PerInstanceData, 1),
             new InputElementDescription("RADIUS", 0, Format.R32_Float, 8, 0, InputClassification.PerInstanceData, 1),
             new InputElementDescription("ANGLES", 0, Format.R32G32_Float, 12, 0, InputClassification.PerInstanceData, 1)], arcCode.Span);
+        var rayCode = Compiler.Compile(ShaderSource, "RayVS", "drawing.hlsl", "vs_4_0");
+        rayShader = device.CreateVertexShader(rayCode.Span);
+        rayLayout = device.CreateInputLayout([
+            new InputElementDescription("ORIGIN", 0, Format.R32G32_Float, 0, 0, InputClassification.PerInstanceData, 1),
+            new InputElementDescription("DIRECTION", 0, Format.R32G32_Float, 8, 0, InputClassification.PerInstanceData, 1),
+            new InputElementDescription("KIND", 0, Format.R32_Float, 16, 0, InputClassification.PerInstanceData, 1)], rayCode.Span);
         constantBuffer = device.CreateBuffer(new BufferDescription((uint)Marshal.SizeOf<Constants>(), BindFlags.ConstantBuffer, ResourceUsage.Dynamic, CpuAccessFlags.Write));
         // Alpha-blended antialiased lines; MSAA is not available on flip-model swap chains.
         rasterizer = device.CreateRasterizerState(new RasterizerDescription(CullMode.None, FillMode.Solid) { AntialiasedLineEnable = true });
@@ -113,10 +129,12 @@ public sealed class DrawingRenderer : IDisposable
         Origin = origin;
         var lines = new List<Vector2>();
         var arcs = new List<ArcInstance>();
+        var rays = new List<RayInstance>();
         Vector2 F(System.Windows.Point p) => new((float)(p.X - origin.X), (float)(p.Y - origin.Y));
         var entities=drawing.ToArray();
         foreach (var c in entities.Where(e=>e.Kind!="POINT").SelectMany(e=>e.RenderCurves??e.Curves))
-            if (c.IsLine) { lines.Add(F(c.Start)); lines.Add(F(c.End)); }
+            if (c.IsUnbounded) rays.Add(new RayInstance(F(c.Start), new((float)(c.End.X - c.Start.X), (float)(c.End.Y - c.Start.Y)), c.Extent == LineExtent.Infinite ? 1 : 0));
+            else if (c.IsLine) { lines.Add(F(c.Start)); lines.Add(F(c.End)); }
             else arcs.Add(new ArcInstance(F(c.Center), (float)c.Radius, (float)c.Angle, (float)c.Sweep));
         arcs.Sort((a, b) => a.Radius.CompareTo(b.Radius));
         var bucketList = new List<ArcBucket>();
@@ -131,6 +149,8 @@ public sealed class DrawingRenderer : IDisposable
         if (arcs.Count > 0) arcBuffer = device.CreateBuffer(CollectionsMarshal.AsSpan(arcs), BindFlags.VertexBuffer, ResourceUsage.Immutable);
         lineVertexCount = lines.Count;
         buckets = [.. bucketList];
+        rayBuffer?.Dispose(); rayBuffer = null; rayInstanceCount = rays.Count;
+        if (rays.Count > 0) rayBuffer = device.CreateBuffer(CollectionsMarshal.AsSpan(rays), BindFlags.VertexBuffer, ResourceUsage.Immutable);
         var dots=entities.SelectMany(e=>e.RenderDots).SelectMany(p=>Enumerable.Repeat(F(p),4)).ToArray();
         dotBuffer?.Dispose();dotBuffer=null;dotVertexCount=dots.Length;
         if(dots.Length>0)dotBuffer=device.CreateBuffer(dots.AsSpan(),BindFlags.VertexBuffer,ResourceUsage.Immutable);
@@ -171,7 +191,7 @@ public sealed class DrawingRenderer : IDisposable
         if (pixelWidth < 1 || pixelHeight < 1) return;
         Resize(pixelWidth, pixelHeight);
         context.ClearRenderTargetView(renderTarget!, background);
-        if (lineBuffer != null || arcBuffer != null || fillBuffer != null || pointBuffer != null || dotBuffer != null)
+        if (lineBuffer != null || arcBuffer != null || fillBuffer != null || pointBuffer != null || dotBuffer != null || rayBuffer != null)
         {
             context.OMSetRenderTargets(renderTarget!);
             context.RSSetViewport(0, 0, width, height);
@@ -218,6 +238,15 @@ public sealed class DrawingRenderer : IDisposable
                 context.VSSetShader(lineShader);
                 context.Draw((uint)lineVertexCount, 0);
             }
+            if (rayBuffer != null)
+            {
+                SetConstants(constants);
+                context.IASetInputLayout(rayLayout);
+                context.IASetPrimitiveTopology(PrimitiveTopology.LineList);
+                context.IASetVertexBuffer(0, rayBuffer, (uint)Marshal.SizeOf<RayInstance>());
+                context.VSSetShader(rayShader);
+                context.DrawInstanced(2, (uint)rayInstanceCount, 0, 0);
+            }
             if (arcBuffer != null)
             {
                 context.IASetInputLayout(arcLayout);
@@ -253,8 +282,8 @@ public sealed class DrawingRenderer : IDisposable
     public void Dispose()
     {
         d2d.Target = null;
-        foreach (IDisposable? d in new IDisposable?[] { d2dTarget, renderTarget, lineBuffer, arcBuffer, fillBuffer, pointBuffer, dotBuffer, pointShader, dwrite, d2d, d2dFactory,
-            blend, rasterizer, constantBuffer, arcLayout, lineLayout, pixelShader, arcShader, lineShader, swapChain, context, device })
+        foreach (IDisposable? d in new IDisposable?[] { d2dTarget, renderTarget, lineBuffer, arcBuffer, fillBuffer, pointBuffer, dotBuffer, rayBuffer, pointShader, rayShader, dwrite, d2d, d2dFactory,
+            blend, rasterizer, constantBuffer, rayLayout, arcLayout, lineLayout, pixelShader, arcShader, lineShader, swapChain, context, device })
             d?.Dispose();
     }
 }

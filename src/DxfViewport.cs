@@ -212,6 +212,14 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         using var sink = geometry.Open();
         foreach (var c in curves)
         {
+            if (c.IsUnbounded)
+            {
+                if (ClipToView(c) is (Vector2 a, Vector2 b))
+                {
+                    sink.BeginFigure(a, FigureBegin.Hollow); sink.AddLine(b); sink.EndFigure(FigureEnd.Open);
+                }
+                continue;
+            }
             sink.BeginFigure(ScreenV(c.Start), FigureBegin.Hollow);
             if (c.IsLine) sink.AddLine(ScreenV(c.End));
             else
@@ -228,6 +236,23 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         }
         sink.Close();
         return geometry;
+    }
+    // Clips a ray or xline to the viewport (with a small margin) in screen space, keeping Direct2D coordinates small.
+    private (Vector2, Vector2)? ClipToView(Curve c)
+    {
+        var p = Screen(c.Start); var d = Screen(c.End) - p;
+        double lo = c.TMin, hi = c.TMax, margin = 10;
+        bool Slab(double origin, double delta, double min, double max)
+        {
+            if (Math.Abs(delta) < 1e-300) return origin >= min && origin <= max;
+            var t0 = (min - origin) / delta; var t1 = (max - origin) / delta;
+            if (t0 > t1) (t0, t1) = (t1, t0);
+            lo = Math.Max(lo, t0); hi = Math.Min(hi, t1);
+            return lo <= hi;
+        }
+        if (!Slab(p.X, d.X, -margin, ActualWidth + margin) || !Slab(p.Y, d.Y, -margin, ActualHeight + margin)) return null;
+        var a = p + d * lo; var b = p + d * hi;
+        return (new Vector2((float)a.X, (float)a.Y), new Vector2((float)b.X, (float)b.Y));
     }
 
     private void SetHoveredMidpoint(MeasurementTarget? target)
@@ -266,7 +291,8 @@ public sealed class DxfViewport : System.Windows.Controls.Border
             foreach (var entity in Document.Entities)
             {
                 var b = entity.Bounds; b.Inflate(nearest, nearest);
-                if (!b.Contains(point)) continue;
+                // Ray and xline bounds hold only their base point, so they skip the box prefilter.
+                if (!entity.IsUnbounded && !b.Contains(point)) continue;
                 var distance = (entity.Closest(point)-point).Length;
                 if (distance < nearest) { target = new MeasurementTarget(entity); nearest = distance; }
             }
