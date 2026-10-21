@@ -61,7 +61,7 @@ public partial class MainWindow : Window
             if(doc.Entities.Any(e=>e.Text!=null)) Status.Text += " • Text font: Arial substitute";
             if (doc.UnsupportedWarning is { } warning)
             {
-                Status.Text += " • WARNING: incomplete drawing • Skipped: " + string.Join(", ", doc.Skipped.Select(p => $"{p.Key} ({p.Value})"));
+                Status.Text += doc.Skipped.Count>0 ? " • WARNING: incomplete drawing • Skipped: " + string.Join(", ", doc.Skipped.Select(p => $"{p.Key} ({p.Value})")) : " • WARNING: some text formatting is approximated";
                 MessageBox.Show(this, warning, "Unsupported DXF elements", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }

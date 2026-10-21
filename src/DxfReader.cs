@@ -7,9 +7,11 @@ public sealed class DxfDocument
     public List<DxfEntity> Entities { get; } = [];
     public Dictionary<string, int> Skipped { get; } = [];
     public string Units { get; set; } = "drawing units (unspecified)";
-    public string? UnsupportedWarning => Skipped.Count == 0 ? null :
-        $"This drawing is only partially displayed. {Skipped.Values.Sum():N0} unsupported records were skipped.\n\n" +
+    public Dictionary<string,int> RenderingWarnings { get; } = [];
+    public string? UnsupportedWarning => Skipped.Count == 0 && RenderingWarnings.Count == 0 ? null :
+        (Skipped.Count>0 ? $"This drawing is only partially displayed. {Skipped.Values.Sum():N0} unsupported records were skipped.\n\n" : "Some drawing features are displayed approximately.\n\n") +
         string.Join("\n", Skipped.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => $"{p.Key}: {p.Value:N0}")) +
+        (RenderingWarnings.Count==0?"":"\n\nRendering notes:\n"+string.Join("\n",RenderingWarnings.OrderBy(p=>p.Key).Select(p=>$"{p.Key}: {p.Value:N0}"))) +
         "\n\nSkipped block inserts may contain additional geometry that is not shown. Measurements apply only to displayed geometry.";
     public Rect Bounds => Entities.Aggregate(Rect.Empty, (r, e) => { r.Union(e.Bounds); return r; });
 }
@@ -25,7 +27,7 @@ public static class DxfReader
         {
             var value = reader.ReadLine() ?? throw new InvalidDataException("Incomplete DXF group pair.");
             if (!int.TryParse(code.Trim(), out var n)) throw new InvalidDataException("Only ASCII DXF files are supported in this initial viewer.");
-            pairs.Add(new Pair(n, n == 1 ? value : value.Trim()));
+            pairs.Add(new Pair(n, n is 1 or 3 ? value : value.Trim()));
         }
         var doc = new DxfDocument();
         for (int j = 0; j + 1 < pairs.Count; j++)
@@ -130,6 +132,18 @@ public static class DxfReader
                         {
                             doc.Skipped["SPLINE (invalid or unsupported)"] = doc.Skipped.GetValueOrDefault("SPLINE (invalid or unsupported)")+1;
                         }
+                        break;
+                    case "MTEXT":
+                        try
+                        {
+                            var notes=new HashSet<string>();
+                            var layout=DxfMText.Read(fields.Select(f=>(f.Code,f.Value)).ToList(),S(8,"0"),S(5),note=>notes.Add(note));
+                            if(layout.Entity.Curves.Count>0)Add(layout.Entity);
+                            foreach(var note in notes)doc.RenderingWarnings[note]=doc.RenderingWarnings.GetValueOrDefault(note)+1;
+                        }
+                        catch(NotSupportedException ex){Skip(ex.Message);}
+                        catch(Exception ex) when(ex is InvalidDataException or FormatException or OverflowException or ArgumentException)
+                        {Skip("MTEXT (invalid or unsupported)");}
                         break;
                     case "HATCH":
                         try { Add(DxfHatch.Read(fields.Select(f=>(f.Code,f.Value)).ToList(),S(8,"0"),S(5))); }

@@ -15,4 +15,7 @@
  <ItemGroup><Compile Include="PrimitiveChecks.cs"/><None Update="Fixtures/primitives-and-blocks.dxf" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
  <ItemGroup><Compile Include="../src/DxfHatch.cs" Link="DxfHatch.cs"/></ItemGroup>
  <ItemGroup><Compile Include="HatchChecks.cs"/><None Update="Fixtures/hatches.dxf" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
+ <ItemGroup><Compile Include="../src/DxfMText.cs" Link="DxfMText.cs"/></ItemGroup>
+ <ItemGroup><Compile Include="MTextChecks.cs"/><None Update="Fixtures/mtext.dxf" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
+ <ItemGroup><None Update="Fixtures/mtext-single*.dxf" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
 </Project>
