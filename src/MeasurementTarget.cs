@@ -3,9 +3,15 @@ namespace VibeDxf;
 
 public enum MeasurementStrategy { Closest, Center }
 
-/// <summary>A whole element or the exact midpoint of one of its straight segments.</summary>
-public sealed record MeasurementTarget(DxfEntity Entity, int? MidpointSegment = null)
+/// <summary>
+/// A whole element or the exact midpoint of one of its straight segments. On a sheet, model geometry picked through
+/// a layout viewport keeps that <paramref name="Viewport"/>: its coordinates and measurements stay in model units and
+/// only its display is mapped onto the sheet.
+/// </summary>
+public sealed record MeasurementTarget(DxfEntity Entity, int? MidpointSegment = null, DxfViewportWindow? Viewport = null)
 {
+    /// <summary>Maps a point of this target's own space onto the displayed sheet (identity outside viewports).</summary>
+    public Point ToDisplay(Point p) => Viewport?.ModelToPaper.Transform(p) ?? p;
     public Point? Midpoint => MidpointSegment is int i ? Entity.Curves[i].At(0.5) : null;
     public string Description => MidpointSegment is null ? Entity.Kind : $"{Entity.Kind} midpoint";
     // A polyline can contain several unrelated arc centers; only standalone arcs/circles use this strategy.

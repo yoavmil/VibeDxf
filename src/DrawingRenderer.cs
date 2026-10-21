@@ -21,7 +21,7 @@ public sealed class DrawingRenderer : IDisposable
 {
     private const string ShaderSource = """
         cbuffer Camera : register(b0) { float4 row0; float4 row1; float4 mono; float segments; float3 pad; float4 style; };
-        // style.x: 1 = monochrome; style.y: annotation opacity; style.z: opacity of the whole pass (layout viewports).
+        // style.x: 1 = monochrome; style.y: annotation opacity; style.z: opacity of the whole pass.
         // groups: per layer+category flags, bit 0 visible, bit 1 annotation. Rewritten on visibility changes only.
         Buffer<uint> groups : register(t0);
         struct VSOut { float4 pos : SV_Position; nointerpolation float4 color : COLOR; };
@@ -69,7 +69,7 @@ public sealed class DrawingRenderer : IDisposable
     private readonly record struct RayInstance(Vector2 Origin, Vector2 Direction, float Infinite, uint Color, uint Group);
     /// <summary>Group flag bits, see <see cref="SetGroupFlags"/>.</summary>
     public const uint GroupVisible = 1, GroupAnnotation = 2;
-    private const float AnnotationOpacity = 0.45f, ViewportOpacity = 0.6f;
+    private const float AnnotationOpacity = 0.45f;
     // Arcs are sorted by radius and drawn per power-of-two radius bucket, each with just enough segments.
     private readonly record struct ArcBucket(int Start, int Count, double MaxRadius);
     private readonly record struct Range(int Start, int Count);
@@ -304,8 +304,7 @@ public sealed class DrawingRenderer : IDisposable
                     // Layers frozen in this viewport only: hide their groups for this pass.
                     if (viewport.FrozenLayers.Length > 0)
                         WriteGroups([.. groupFlags.Select((f, g) => g < groupLayers.Length && viewport.FrozenLayers.Contains(groupLayers[g]) ? f & ~GroupVisible : f)]);
-                    // Model content seen through a viewport is not selectable, so it is drawn dimmed.
-                    Draw(model, viewport.ModelToPaper * camera, dipScale, lineColor, ViewportOpacity, monochrome);
+                    Draw(model, viewport.ModelToPaper * camera, dipScale, lineColor, 1, monochrome);
                     if (viewport.FrozenLayers.Length > 0) WriteGroups(groupFlags);
                 }
                 context.RSSetState(rasterizer);

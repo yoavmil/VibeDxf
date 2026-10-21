@@ -156,5 +156,10 @@ public sealed class LayerChecks
         Assert.True(InkIn(viewports[0],layer1)>0);Assert.Equal(0,InkIn(viewports[1],layer1));Assert.True(InkIn(viewports[2],layer1)>0);
         var layer2=Find(doc,"A7");
         Assert.True(InkIn(viewports[1],layer2)>0);Assert.Equal(0,InkIn(viewports[2],layer2));
+        // Picking through a viewport skips layers frozen in that viewport only.
+        var glyph=layer1.Curves[0].Start;
+        h.Call("SelectAt",viewports[1].ModelToPaper.Transform(glyph),false);Assert.Empty(h.View.Selected);
+        h.Call("SelectAt",viewports[0].ModelToPaper.Transform(glyph),false);
+        Assert.Equal("A8",h.View.Selected.Single().Entity.Handle);Assert.Equal("B1",h.View.Selected[0].Viewport!.Handle);
     }));
 }

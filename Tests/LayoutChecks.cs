@@ -71,9 +71,20 @@ public sealed class LayoutChecks
             Assert.True(Nothing(new(10.5,5)));Assert.True(Nothing(new(15,1)));Assert.True(Nothing(new(19.5,5)));
             Assert.True(At(new(10.5,5),Dark));
 
-            // Layout picking sees paper entities only; model content in viewports and the frames are display-only.
+            // Paper entities pick on the sheet; inside a viewport window clicks reach the model geometry shown there.
             Call(view,"SelectAt",new Point(10,0),false);Assert.Equal("P1",view.Selected.Single().Entity.Handle);
-            view.ClearSelection();Call(view,"SelectAt",new Point(7,5),false);Assert.Empty(view.Selected);
+            view.ClearSelection();
+            Call(view,"SelectAt",new Point(7,5),false);
+            var line=view.Selected.Single();Assert.Equal("M2",line.Entity.Handle);Assert.Equal("V2",line.Viewport!.Handle);
+            // Top of circle MC (model 50,60) seen through the 90° twisted viewport V3 lands at paper (13,5).
+            Call(view,"SelectAt",new Point(13,5),false);
+            Assert.Equal(["M2","MC"],view.Selected.Select(t=>t.Entity.Handle));Assert.Equal("V3",view.Selected[1].Viewport!.Handle);
+            // Measured in model units: M2 (y=50) crosses circle MC.
+            TestSupport.Near(0,view.Measurement!.Value.Distance);
+            VisualReport.Capture(renderer,"Layout: model line and circle selected through two viewports (orange through the plain one, blue through the twisted one)",()=>Call(view,"RenderNow"));
+            // Sheet and model units never mix in one measurement: a paper pick starts a new selection.
+            Call(view,"SelectAt",new Point(10,0),false);Assert.Equal("P1",view.Selected.Single().Entity.Handle);
+            // Viewport frames stay display-only; empty space inside a window clears the selection.
             Call(view,"SelectAt",new Point(9,4),false);Assert.Empty(view.Selected);
 
             view.ActiveLayout=-1;Pump();Call(view,"RenderNow");

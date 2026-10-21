@@ -38,6 +38,8 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     private Rect bounds = Rect.Empty;
     private bool renderQueued;
     private MidpointIndex? midpointIndex;
+    // Visible model geometry; on a sheet this serves snaps through layout viewports.
+    private MidpointIndex? modelIndex;
     private MeasurementTarget? hoveredMidpoint;
     private readonly List<MeasurementTarget> selected = [];
     public DxfDocument? Document { get; private set; }
@@ -103,7 +105,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     private void ApplyLayout()
     {
         bounds = Layout?.Bounds ?? Document!.Bounds;
-        midpointIndex = new MidpointIndex(ActiveEntities.Where(IsVisible));
+        RebuildIndexes();
         ClearSelection(); Fit(); LayoutChanged?.Invoke();
     }
     private void Upload()
@@ -163,6 +165,12 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         for (int i = 0; i < layerVisible.Length; i++) layerVisible[i] = i == layer;
         ApplyVisibility();
     }
+    private void RebuildIndexes()
+    {
+        if (Document is not { } doc) return;
+        modelIndex = new MidpointIndex(doc.Entities.Where(IsVisible));
+        midpointIndex = Layout == null ? modelIndex : new MidpointIndex(Layout.Entities.Where(IsVisible));
+    }
     private uint[] GroupFlags() => Document is not { } doc ? [] : [.. doc.Groups.Select(g =>
         (IsLayerVisible(g.Layer) && IsCategoryVisible(g.Category) ? DrawingRenderer.GroupVisible : 0) |
         (g.Category >= EntityCategory.Dimension ? DrawingRenderer.GroupAnnotation : 0))];
@@ -171,7 +179,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         if (Document == null) return;
         host.Renderer?.SetGroupFlags(GroupFlags());
         // Hidden items can't be picked, snapped or measured.
-        midpointIndex = new MidpointIndex(ActiveEntities.Where(IsVisible));
+        RebuildIndexes();
         selected.RemoveAll(t => !IsVisible(t.Entity));
         hoveredMidpoint = null;
         UpdateMeasurement();
@@ -201,6 +209,13 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     private Point World(Point p) => new((p.X - offset.X) / scale, (offset.Y - p.Y) / scale);
     private Point Screen(Point p) => new(p.X * scale + offset.X, -p.Y * scale + offset.Y);
     private Vector2 ScreenV(Point p) { var s = Screen(p); return new((float)s.X, (float)s.Y); }
+    private Vortice.RawRectF ScreenRect(Rect world)
+    {
+        var a = Screen(world.TopLeft); var b = Screen(world.BottomRight);
+        return new((float)Math.Min(a.X, b.X), (float)Math.Min(a.Y, b.Y), (float)Math.Max(a.X, b.X), (float)Math.Max(a.Y, b.Y));
+    }
+    // Targets picked through a layout viewport live in model space; their overlay is drawn through that viewport.
+    private Vector2 ScreenV(Point p, DxfViewportWindow? viewport) => ScreenV(viewport?.ModelToPaper.Transform(p) ?? p);
 
     // Coalesces any number of changes into one frame per dispatcher pass.
     internal void Invalidate()
@@ -229,28 +244,32 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         for (int i = 0; i < selected.Count; i++)
         {
             var color = i == 0 ? Orange : Blue;
-            if (selected[i].Midpoint is Point point) DrawMidpointMarker(dc, ScreenV(point), color);
+            var viewport = selected[i].Viewport;
+            // Like the GPU scissor, a highlight seen through a viewport stays inside that viewport's window.
+            if (viewport != null) dc.PushAxisAlignedClip(ScreenRect(viewport.Paper), AntialiasMode.Aliased);
+            if (selected[i].Midpoint is Point point) DrawMidpointMarker(dc, ScreenV(point, viewport), color);
             else
             {
                 var entity=selected[i].Entity;
                 var highlight=entity.Kind=="HATCH" && entity.RenderCurves is { } strokes
                     ? entity.Curves.Concat(strokes) : entity.Curves;
-                using var geometry = BuildScreenGeometry(highlight);
+                using var geometry = BuildViewportGeometry(highlight, viewport);
                 using var brush = dc.CreateSolidColorBrush(color);
                 dc.DrawGeometry(geometry, brush, 3);
                 if(entity.Kind=="HATCH")
-                    foreach(var dot in entity.RenderDots)dc.FillEllipse(new Ellipse(ScreenV(dot),2,2),brush);
+                    foreach(var dot in entity.RenderDots)dc.FillEllipse(new Ellipse(ScreenV(dot,viewport),2,2),brush);
                 if (selected[i].FixedPoint(i == 0 ? FirstStrategy : SecondStrategy) is Point center)
                 {
-                    var p = ScreenV(center);
+                    var p = ScreenV(center, viewport);
                     dc.DrawLine(p - new Vector2(6, 0), p + new Vector2(6, 0), brush, 2);
                     dc.DrawLine(p - new Vector2(0, 6), p + new Vector2(0, 6), brush, 2);
                 }
             }
+            if (viewport != null) dc.PopAxisAlignedClip();
         }
         if (Measurement is { } m)
         {
-            var a = ScreenV(m.A); var b = ScreenV(m.B);
+            var a = ScreenV(m.A, selected[0].Viewport); var b = ScreenV(m.B, selected[1].Viewport);
             using var brush = dc.CreateSolidColorBrush(Green);
             using var dash = host.Renderer!.Factory2D.CreateStrokeStyle(new StrokeStyleProperties { DashStyle = DashStyle.Dash });
             dc.DrawLine(a, b, brush, 1.5f, dash);
@@ -262,7 +281,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         }
         if (hoveredMidpoint?.Midpoint is Point snap)
         {
-            var s = ScreenV(snap);
+            var s = ScreenV(snap, hoveredMidpoint.Viewport);
             DrawMidpointMarker(dc, s, Snap);
             DrawText(dc, "Midpoint", 12, Snap, null, (w, h) =>
                 new(Math.Clamp(s.X + 12, 2, Math.Max(2, ActualWidth - w - 6)),
@@ -306,28 +325,31 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         dc.FillEllipse(new Ellipse(p, 1.5f, 1.5f), brush);
     }
     // Selected entities are few, so their outline is rebuilt in screen space every frame for a constant 3 px stroke.
-    private ID2D1PathGeometry BuildScreenGeometry(IEnumerable<Curve> curves)
+    // Checks call this one-argument overload by reflection.
+    private ID2D1PathGeometry BuildScreenGeometry(IEnumerable<Curve> curves) => BuildViewportGeometry(curves, null);
+    private ID2D1PathGeometry BuildViewportGeometry(IEnumerable<Curve> curves, DxfViewportWindow? viewport)
     {
+        var viewScale = viewport is { } v ? Math.Sqrt(Math.Abs(v.ModelToPaper.Determinant)) : 1;
         var geometry = host.Renderer!.Factory2D.CreatePathGeometry();
         using var sink = geometry.Open();
         foreach (var c in curves)
         {
             if (c.IsUnbounded)
             {
-                if (ClipToView(c) is (Vector2 a, Vector2 b))
+                if (ClipToView(c, viewport) is (Vector2 a, Vector2 b))
                 {
                     sink.BeginFigure(a, FigureBegin.Hollow); sink.AddLine(b); sink.EndFigure(FigureEnd.Open);
                 }
                 continue;
             }
-            sink.BeginFigure(ScreenV(c.Start), FigureBegin.Hollow);
-            if (c.IsLine) sink.AddLine(ScreenV(c.End));
+            sink.BeginFigure(ScreenV(c.Start, viewport), FigureBegin.Hollow);
+            if (c.IsLine) sink.AddLine(ScreenV(c.End, viewport));
             else
             {
                 int count = Math.Abs(c.Sweep) >= Math.Tau - 1e-10 ? 2 : 1;
-                var r = (float)(c.Radius * scale);
+                var r = (float)(c.Radius * viewScale * scale);
                 for (int i = 1; i <= count; i++)
-                    sink.AddArc(new ArcSegment(ScreenV(c.At((double)i / count)), new Size(r, r), 0,
+                    sink.AddArc(new ArcSegment(ScreenV(c.At((double)i / count), viewport), new Size(r, r), 0,
                         // ScreenV flips Y, so positive DXF sweeps remain visually counterclockwise.
                         c.Sweep > 0 ? SweepDirection.CounterClockwise : SweepDirection.Clockwise,
                         Math.Abs(c.Sweep / count) > Math.PI ? ArcSize.Large : ArcSize.Small));
@@ -338,9 +360,10 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         return geometry;
     }
     // Clips a ray or xline to the viewport (with a small margin) in screen space, keeping Direct2D coordinates small.
-    private (Vector2, Vector2)? ClipToView(Curve c)
+    private (Vector2, Vector2)? ClipToView(Curve c, DxfViewportWindow? viewport = null)
     {
-        var p = Screen(c.Start); var d = Screen(c.End) - p;
+        Point Map(Point q) => Screen(viewport?.ModelToPaper.Transform(q) ?? q);
+        var p = Map(c.Start); var d = Map(c.End) - p;
         double lo = c.TMin, hi = c.TMax, margin = 10;
         bool Slab(double origin, double delta, double min, double max)
         {
@@ -384,34 +407,68 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     private void SelectAt(Point point, bool snapMidpoint)
     {
         if (Document == null) return;
-        var target = snapMidpoint ? midpointIndex?.Find(point, 8 / scale) : null;
-        if (target == null)
-        {
-            double nearest = 7 / scale;
-            foreach (var entity in ActiveEntities)
-            {
-                if (entity.IsAnnotation || !IsVisible(entity)) continue;
-                var b = entity.Bounds; b.Inflate(nearest, nearest);
-                // Ray and xline bounds hold only their base point, so they skip the box prefilter.
-                if (!entity.IsUnbounded && !b.Contains(point)) continue;
-                var distance = (entity.Closest(point)-point).Length;
-                if (distance < nearest) { target = new MeasurementTarget(entity); nearest = distance; }
-            }
-        }
+        var target = Pick(point, snapMidpoint);
         if (target == null) { ClearSelection(); return; }
         if (!selected.Remove(target))
         {
-            if (selected.Count == 2) selected.Clear();
+            // Sheet and model coordinates have different units, so a measurement never mixes them.
+            if (selected.Count == 2 || selected.Any(t => (t.Viewport == null) != (target.Viewport == null))) selected.Clear();
             selected.Add(target);
         }
         hoveredMidpoint = null;
         UpdateMeasurement();
     }
+
+    // Paper-space items win on a sheet; elsewhere inside a viewport window the click reaches the model geometry shown
+    // there, in model coordinates, skipping layers frozen in that viewport.
+    private MeasurementTarget? Pick(Point point, bool snapMidpoint)
+    {
+        var target = snapMidpoint ? midpointIndex?.Find(point, 8 / scale) : null;
+        target ??= Nearest(ActiveEntities, point, 7 / scale, null);
+        if (target != null || Layout is not { } layout) return target;
+        if (ViewportAt(layout, point) is not { } viewport) return null;
+        var (model, zoom) = ToModel(viewport, point);
+        var snap = snapMidpoint ? modelIndex?.Find(model, 8 / scale / zoom) : null;
+        if (snap != null && !viewport.FrozenLayers.Contains(LayerIndex(snap.Entity))) return snap with { Viewport = viewport };
+        return Nearest(Document!.Entities, model, 7 / scale / zoom, viewport);
+    }
+    private MeasurementTarget? Nearest(IEnumerable<DxfEntity> entities, Point point, double tolerance, DxfViewportWindow? viewport)
+    {
+        MeasurementTarget? target = null; double nearest = tolerance;
+        foreach (var entity in entities)
+        {
+            if (entity.IsAnnotation || !IsVisible(entity)) continue;
+            if (viewport != null && viewport.FrozenLayers.Contains(LayerIndex(entity))) continue;
+            var b = entity.Bounds; b.Inflate(nearest, nearest);
+            // Ray and xline bounds hold only their base point, so they skip the box prefilter.
+            if (!entity.IsUnbounded && !b.Contains(point)) continue;
+            var distance = (entity.Closest(point) - point).Length;
+            if (distance < nearest) { target = new MeasurementTarget(entity, null, viewport); nearest = distance; }
+        }
+        return target;
+    }
+    private int LayerIndex(DxfEntity entity) => Document is { } doc && entity.Group < doc.Groups.Count ? doc.Groups[entity.Group].Layer : -1;
+    // Topmost viewport window under a sheet point (later viewports are drawn above earlier ones).
+    private static DxfViewportWindow? ViewportAt(DxfLayout layout, Point point) => layout.Viewports.LastOrDefault(v => v.Paper.Contains(point));
+    private static (Point Model, double Zoom) ToModel(DxfViewportWindow viewport, Point paper)
+    {
+        var inverse = viewport.ModelToPaper; inverse.Invert();
+        return (inverse.Transform(paper), Math.Sqrt(Math.Abs(viewport.ModelToPaper.Determinant)));
+    }
+    private MeasurementTarget? HoverAt(Point point)
+    {
+        var paper = midpointIndex?.Find(point, 8 / scale);
+        if (paper != null || Layout is not { } layout) return paper;
+        if (ViewportAt(layout, point) is not { } viewport) return null;
+        var (model, zoom) = ToModel(viewport, point);
+        return modelIndex?.Find(model, 8 / scale / zoom) is { } snap && !viewport.FrozenLayers.Contains(LayerIndex(snap.Entity))
+            ? snap with { Viewport = viewport } : null;
+    }
     protected override void OnMouseMove(MouseEventArgs e)
     {
         var next = e.GetPosition(this);
         if (panStart is Point start) { offset += next - start; panStart = next; Invalidate(); }
-        else SetHoveredMidpoint(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? null : midpointIndex?.Find(World(next), 8 / scale));
+        else SetHoveredMidpoint(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) || Document == null ? null : HoverAt(World(next)));
     }
     protected override void OnMouseUp(MouseButtonEventArgs e)
     {
