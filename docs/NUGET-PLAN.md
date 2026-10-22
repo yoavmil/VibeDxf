@@ -136,7 +136,7 @@ Exit: publication artifacts and workflow are reviewable and cannot accidentally 
 
 ## Stage 6 — explicitly approved publication and download verification
 
-Approval: user explicitly requested Stages 5+6 on 2026-10-22 and later requested automated Trusted Publishing. Status: workflow preparation authorized; completion waits for the trust policy and successful publication/public-feed consumption. Use the exact candidate/commit/checksums recorded in artifacts/nuget/release/0.2.0-preview.1/validation.json. A nuget/v0.2.0-preview.1 source tag is separate from desktop app release tags.
+Approval: user requested Stages 5+6, subsequently requested automation and explicitly approved creating the scoped trust policy and publishing. Status: complete. VibeDxf.Wpf 0.2.0-preview.1 is public from the original approved local candidate. OIDC authentication and both public-feed consumers passed. The existing version was verified without a second push; see [Stage 6 results](NUGET-STAGE6-RESULTS.md).
 
 - Publish the approved single package and agreed source tag only after explicit authorization for those exact actions. App publication is separate.
 - Restore from the public feed into clean consumers and verify the documented examples and package/source/version agreement.
