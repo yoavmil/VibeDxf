@@ -2,37 +2,43 @@ using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.Win32;
+using VibeDxf.Wpf;
 namespace VibeDxf;
 public partial class MainWindow : Window
 {
     private bool loading;
+    private readonly CancellationTokenSource lifetime = new();
     public MainWindow()
     {
         InitializeComponent();
-        Viewer.SelectionChanged += () =>
+        Closed += (_, _) => { lifetime.Cancel(); Viewer.Dispose(); };
+        Viewer.RenderingFailed += (_, e) => Status.Text = "Drawing renderer failed: " + e.Exception.Message;
+        Viewer.SelectionChanged += (_, _) =>
         {
             var selected = Viewer.Selected;
             if (selected.Count == 2)
             {
-                var m = Viewer.Measurement!.Value;
+                var m = Viewer.Measurement!.Pair!.Value;
                 var approximate = selected.Any(t => t.Entity.Kind == "SPLINE" || t.Entity.IsApproximate) ? "≈ " : "";
-                Measurement.Text = $"{selected[0].Describe(Viewer.FirstStrategy)} → {selected[1].Describe(Viewer.SecondStrategy)} | {approximate}Distance: {m.Distance:0.######}   ΔX: {m.B.X - m.A.X:+0.######;-0.######;0}   ΔY: {m.B.Y - m.A.Y:+0.######;-0.######;0}   [{Viewer.Document?.Units}]";
+                Measurement.Text = $"{selected[0].Describe(Viewer.FirstMeasurementStrategy)} → {selected[1].Describe(Viewer.SecondMeasurementStrategy)} | {approximate}Distance: {m.Distance:0.######}   ΔX: {m.B.X - m.A.X:+0.######;-0.######;0}   ΔY: {m.B.Y - m.A.Y:+0.######;-0.######;0}   [{Viewer.Document?.Units}]";
             }
             else Measurement.Text = selected.Count == 1
-                ? $"Selected {selected[0].Describe(Viewer.FirstStrategy)} • layer {selected[0].Entity.Layer} ({DxfColors.Hex(selected[0].Entity.Color)}) • handle {selected[0].Entity.Handle}. Select another element to measure."
+                ? $"Selected {selected[0].Describe(Viewer.FirstMeasurementStrategy)} • layer {selected[0].Entity.Layer} ({DxfColors.Hex(selected[0].Entity.Color)}) • handle {selected[0].Entity.Handle}. Select another element to measure."
                 : "Select two elements to measure their distance.";
         };
         Layers.Attach(Viewer);
         // Tab 0 is model space; tab i shows layout i−1.
-        Viewer.LayoutChanged += () => LayoutTabs.SelectedIndex = Viewer.ActiveLayout + 1;
+        Viewer.LayoutChanged += (_, _) => LayoutTabs.SelectedIndex = Viewer.ActiveLayout is { } id ? Viewer.Document!.Layouts.ToList().FindIndex(l => l.Id == id) + 1 : 0;
         PreviewKeyDown += async (_, e) =>
         {
             if (e.Key == Key.O && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; await ChooseFile(); }
-            if (e.Key == Key.F && Keyboard.FocusedElement is not System.Windows.Controls.TextBox) Viewer.Fit();
+            if (e.Key == Key.F && Keyboard.FocusedElement is not System.Windows.Controls.TextBox) Viewer.FitToDrawing();
             if (e.Key == Key.L && Keyboard.Modifiers == ModifierKeys.Control) { ShowPanel(PanelColumn.Width.Value == 0); e.Handled = true; }
             if (e.Key is Key.PageUp or Key.PageDown && Keyboard.Modifiers == ModifierKeys.Control && Viewer.Document != null)
             {
-                Viewer.ActiveLayout = Math.Clamp(Viewer.ActiveLayout + (e.Key == Key.PageDown ? 1 : -1), -1, Viewer.Document.Layouts.Count - 1);
+                var current = Viewer.ActiveLayout is { } id ? Viewer.Document.Layouts.ToList().FindIndex(l => l.Id == id) : -1;
+                var next = Math.Clamp(current + (e.Key == Key.PageDown ? 1 : -1), -1, Viewer.Document.Layouts.Count - 1);
+                Viewer.ActiveLayout = next < 0 ? null : Viewer.Document.Layouts[next].Id;
                 e.Handled = true;
             }
             if (e.Key == Key.Escape) Viewer.ClearSelection();
@@ -47,8 +53,8 @@ public partial class MainWindow : Window
     {
         // Unchecked can fire while InitializeComponent is still building the controls.
         if (Viewer == null || FirstStrategyToggle == null || SecondStrategyToggle == null) return;
-        Viewer.FirstStrategy = FirstStrategyToggle.IsChecked == true ? MeasurementStrategy.Center : MeasurementStrategy.Closest;
-        Viewer.SecondStrategy = SecondStrategyToggle.IsChecked == true ? MeasurementStrategy.Center : MeasurementStrategy.Closest;
+        Viewer.FirstMeasurementStrategy = FirstStrategyToggle.IsChecked == true ? MeasurementStrategy.Center : MeasurementStrategy.Closest;
+        Viewer.SecondMeasurementStrategy = SecondStrategyToggle.IsChecked == true ? MeasurementStrategy.Center : MeasurementStrategy.Closest;
     }
     private double panelWidth = 270;
     private void ShowPanel(bool show)
@@ -62,7 +68,7 @@ public partial class MainWindow : Window
     private void LayoutTabChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (Viewer == null || LayoutTabs.SelectedIndex < 0) return;
-        Viewer.ActiveLayout = LayoutTabs.SelectedIndex - 1;
+        Viewer.ActiveLayout = LayoutTabs.SelectedIndex == 0 ? null : Viewer.Document!.Layouts[LayoutTabs.SelectedIndex - 1].Id;
     }
     private async void OpenClicked(object sender, RoutedEventArgs e) => await ChooseFile();
     private async Task ChooseFile()
@@ -77,11 +83,12 @@ public partial class MainWindow : Window
         Status.Text = $"Loading {Path.GetFileName(path)}…";
         try
         {
-            var doc = await Task.Run(() => DxfReader.Load(path));
+            var doc = (await DxfDocument.LoadAsync(path, lifetime.Token)).Document;
+            lifetime.Token.ThrowIfCancellationRequested();
             // Fill the tabs first: SetDocument raises LayoutChanged, which selects the matching tab.
             LayoutTabs.ItemsSource = new[] { "Model" }.Concat(doc.Layouts.Select(l => l.Name)).ToList();
             LayoutTabs.Visibility = doc.Layouts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            Viewer.SetDocument(doc);
+            await Viewer.SetDocumentAsync(doc, lifetime.Token);
             // Open the panel when the file's saved layer state hides content, so the drawing doesn't look broken.
             if (Layers.HasHiddenContent) ShowPanel(true);
             Title = $"VibeDxf — {Path.GetFileName(path)}";
@@ -94,6 +101,7 @@ public partial class MainWindow : Window
                 MessageBox.Show(this, warning, "Unsupported DXF elements", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
         catch (Exception ex)
         {
             Status.Text = "Could not open drawing.";

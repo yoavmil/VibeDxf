@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Windows;
-using VibeDxf;
+using VibeDxf.Wpf;
 
 static class SplineChecks
 {

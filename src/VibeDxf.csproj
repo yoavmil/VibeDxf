@@ -8,9 +8,7 @@
  </PropertyGroup>
  <ItemGroup>
   <Resource Include="Assets\VibeDxf.ico"/>
-  <PackageReference Include="Vortice.Direct3D11" Version="3.8.3"/>
-  <PackageReference Include="Vortice.Direct2D1" Version="3.8.3"/>
-  <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3"/>
+  <None Include="../LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
  </ItemGroup>
- <ItemGroup><Compile Remove="VibeDxf.Core/**/*.cs"/><EmbeddedResource Remove="VibeDxf.Core/**"/><None Remove="VibeDxf.Core/**"/><ProjectReference Include="VibeDxf.Core/VibeDxf.Core.csproj"/></ItemGroup>
+ <ItemGroup><Compile Remove="VibeDxf.Wpf/**/*.cs"/><Page Remove="VibeDxf.Wpf/**"/><EmbeddedResource Remove="VibeDxf.Wpf/**"/><None Remove="VibeDxf.Wpf/**"/><ProjectReference Include="VibeDxf.Wpf/VibeDxf.Wpf.csproj"/></ItemGroup>
 </Project>

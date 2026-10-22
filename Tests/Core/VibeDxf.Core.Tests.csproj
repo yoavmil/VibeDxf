@@ -1,6 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-<PropertyGroup><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable></PropertyGroup>
-<ItemGroup><ProjectReference Include="../../src/VibeDxf.Core/VibeDxf.Core.csproj"/>
-<PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1"/><PackageReference Include="xunit" Version="2.9.3"/>
-<PackageReference Include="xunit.runner.visualstudio" Version="3.1.5"><PrivateAssets>all</PrivateAssets></PackageReference>
-<None Include="../Fixtures/**/*" Link="Fixtures/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"/></ItemGroup></Project>

@@ -5,10 +5,11 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using VibeDxf.Wpf;
 namespace VibeDxf;
 
 /// <summary>
-/// Layer and annotation visibility for a <see cref="DxfViewport"/>. The viewer owns the state; this panel mirrors it
+/// Layer and annotation visibility for a <see cref="DxfView"/>. The viewer owns the state; this panel mirrors it
 /// and forwards the user's changes, so toggles only rewrite the renderer's visibility table.
 /// </summary>
 public partial class LayerPanel : UserControl
@@ -34,7 +35,7 @@ public partial class LayerPanel : UserControl
     {
         public int Index { get; } = index;
         public string Name { get; } = layer.Name;
-        public Brush Swatch { get; } = Frozen(layer.Color);
+        public Brush Swatch { get; } = Frozen(DxfDisplayColors.ForDarkBackground(layer.Color));
         public string Badges { get; } = string.Join(" · ", new[]
             { layer.OnInFile ? null : "off in file", layer.FrozenInFile ? "frozen" : null, layer.Plot ? null : "no plot" }.OfType<string>());
         public Visibility BadgeVisibility => Badges.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -52,7 +53,7 @@ public partial class LayerPanel : UserControl
         protected override void Apply(bool value) => panel.viewer?.SetCategoryVisible(Category, value);
     }
 
-    private DxfViewport? viewer;
+    private DxfView? viewer;
     private DxfDocument? document;
     private List<LayerRow> layers = [];
     private readonly List<CategoryRow> categories;
@@ -72,12 +73,12 @@ public partial class LayerPanel : UserControl
     /// <summary>True when hidden layers hold drawing content, e.g. layers saved off in the file.</summary>
     public bool HasHiddenContent { get; private set; }
 
-    public void Attach(DxfViewport target)
+    public void Attach(DxfView target)
     {
         viewer = target;
-        viewer.VisibilityChanged += Sync;
-        viewer.LayoutChanged += Sync;
-        viewer.SelectionChanged += () =>
+        viewer.VisibilityChanged += (_, _) => Sync();
+        viewer.LayoutChanged += (_, _) => Sync();
+        viewer.SelectionChanged += (_, _) =>
         {
             // Point at the layer of the most recently selected element.
             if (viewer.Selected.LastOrDefault()?.Entity.Layer is not { } name) return;
@@ -99,8 +100,8 @@ public partial class LayerPanel : UserControl
             MonochromeBox.IsChecked = viewer.Monochrome;
         }
         // Counts describe the current tab: model space or the active sheet's paper space.
-        var active = viewer.ActiveLayout >= 0 ? doc.Layouts[viewer.ActiveLayout].Entities : doc.Entities;
-        var perLayer = active.GroupBy(e => doc.Groups[e.Group].Layer).ToDictionary(g => g.Key, g => g.Count());
+        var active = viewer.ActiveLayout is { } id ? doc.Layouts.First(l => l.Id == id).Entities : doc.Entities;
+        var perLayer = active.GroupBy(e => e.LayerId).ToDictionary(g => g.Key, g => g.Count());
         foreach (var row in layers)
         {
             row.Syncing = true; row.Visible = viewer.IsLayerVisible(row.Index); row.Count = perLayer.GetValueOrDefault(row.Index); row.Syncing = false;
@@ -112,7 +113,7 @@ public partial class LayerPanel : UserControl
         int visible = layers.Count(r => r.Visible);
         Header.Text = $"Layers · {visible} of {layers.Count} visible";
         // Content anywhere (model or any sheet) on hidden layers.
-        var used = doc.Entities.Concat(doc.Layouts.SelectMany(l => l.Entities)).Select(e => doc.Groups[e.Group].Layer).ToHashSet();
+        var used = doc.Entities.Concat(doc.Layouts.SelectMany(l => l.Entities)).Select(e => e.LayerId).ToHashSet();
         var hidden = layers.Where(r => !r.Visible && used.Contains(r.Index)).ToList();
         HasHiddenContent = hidden.Count > 0;
         bool fileState = layers.Where(r => used.Contains(r.Index)).All(r => r.Visible == doc.Layers[r.Index].VisibleInFile);

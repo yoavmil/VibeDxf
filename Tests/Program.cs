@@ -1,6 +1,6 @@
 using System.Windows;
 using System.IO;
-using VibeDxf;
+using VibeDxf.Wpf;
 
 static class GeometryChecks
 {

@@ -8,7 +8,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using VibeDxf;
+using VibeDxf.Wpf;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
 

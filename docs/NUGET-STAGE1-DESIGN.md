@@ -1,4 +1,8 @@
+> Archived: the user cancelled the two-library extraction on 2026-10-22. Its code has been reverted to the original single-project application. This document describes the abandoned implementation, not current APIs.
+
 # NuGet extraction: Stage 1 design
+
+Historical design/baseline. Subsequent Stage 2 approval accepted this direction, and Stages 2-3 are complete. See [Stage 3 results](NUGET-STAGE3-RESULTS.md) for the implemented contract and current state.
 
 Date: 2026-10-22. Source baseline: 8722a427be68133e156e9ddd17a3cf33b27ce1d0.
 Status: proposed contract for review; no implementation changes. Approval to execute Stage 1 was the user's "go" after the staged plan. Approval of Stage 2 is still required.

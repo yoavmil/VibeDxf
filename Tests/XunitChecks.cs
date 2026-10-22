@@ -1,4 +1,4 @@
-using VibeDxf;
+using VibeDxf.Wpf;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -50,7 +50,7 @@ public sealed class XunitChecks(ITestOutputHelper output)
  [Fact]
  public void UnsupportedWarningListsEveryType() => TestSupport.Run("Compatibility warning lists skipped types and counts",()=>
  {
-  var doc=new DxfDocument();doc.Skipped.Add("TEXT",2);doc.Skipped.Add("INSERT",3);
+  var doc=new DrawingBuilder();doc.Skipped.Add("TEXT",2);doc.Skipped.Add("INSERT",3);
   var warning=doc.UnsupportedWarning!;
   Assert.Contains("5 unsupported records",warning);
   Assert.Contains("INSERT: 3",warning);Assert.Contains("TEXT: 2",warning);

@@ -1,6 +1,8 @@
 # Plan: split VibeDxf into two NuGet packages
 
-Status: Stages 1 and 2 complete. Stage 3 explicitly approved, but not started: first commit the intermediate work on nuget-library-split. Stages 4–6 still require approval.
+Superseded by [the single-package plan](NUGET-PLAN.md). This document is retained only as cancelled history; none of its prior stage approvals apply to the replacement plan.
+
+Status: CANCELLED by user on 2026-10-22. Extraction code was restored to the pre-split baseline (8722a42). Keep one Windows/WPF project for now; any future reusable library should keep text preparation and geometry together. The stage history below is archival, not authorization to resume.
 
 ## Approval rule
 
@@ -55,7 +57,7 @@ Exit check: no System.Windows, Vortice, window or graphics initialization depend
 
 ## Stage 3 â€” extract the WPF viewer and integrate the desktop app
 
-Approval: explicitly granted on 2026-10-22: "before, create a branch for this, and commit the intermediate changes, then continue to stage 3". Status: not started; checkpoint commit is pending because Git index writes were denied in the previous execution environment. Do not ask for Stage 3 approval again; first complete the authorized checkpoint commit.
+Approval: explicitly granted on 2026-10-22: "before, create a branch for this, and commit the intermediate changes, then continue to stage 3". Status: completed 2026-10-22. Authorized checkpoint commit 77ac185 succeeded through the supported execution approval flow. See [Stage 3 results](NUGET-STAGE3-RESULTS.md).
 
 - Create VibeDxf.Wpf and move the renderer, native swap-chain host, text layout/vectorization and viewer interaction into it.
 - Consume Core documents through explicit preparation of renderable geometry. Keep prepared geometry and GPU resources separate from source document data; clarify how prepared text participates in picking and distance calculations.
@@ -117,15 +119,19 @@ For each stage, record: approval message/date, start/end, changed files, validat
 Initial rough estimate: 2â€“5 focused development days for extraction and a public preview, with the greatest uncertainty in decoupling text preparation and preserving text measurements. Reassess after Stage 1; this is an effort estimate, not a delivery promise.
 
 
-## Resume handoff — 2026-10-22
+## Historical resume handoff (resolved by Stage 3)
+
+Current state: checkpoint 77ac185 is committed; Stage 3 is complete and uncommitted; Stage 4 is pending approval. The details below preserve the previous blocker and resume instructions as historical evidence.
+
+## Resume handoff ï¿½ 2026-10-22
 
 Start the next session with **C:\repos\sandbox\CodexDXF** as the project/workspace folder. The previous session was attached to Documents\Codex\2026-10-20\ope and used extra filesystem grants to edit this repository.
 
 ### Exact state at handoff
 
 - Active branch: **nuget-library-split**, successfully created with ordinary `git switch -c nuget-library-split`.
-- HEAD: **8722a427be68133e156e9ddd17a3cf33b27ce1d0**, "Prepare v0.2.0 release". The Stage 1–2 work has **not been committed**. No push, new tag or package publication was performed for this extraction.
-- The working tree contains all Stage 1–2 changes, including this plan, Stage 1 design, Stage 2 results, Core project/tests, console smoke tool and WPF adapters. These documents are currently untracked and must be included in the checkpoint.
+- HEAD: **8722a427be68133e156e9ddd17a3cf33b27ce1d0**, "Prepare v0.2.0 release". The Stage 1ï¿½2 work has **not been committed**. No push, new tag or package publication was performed for this extraction.
+- The working tree contains all Stage 1ï¿½2 changes, including this plan, Stage 1 design, Stage 2 results, Core project/tests, console smoke tool and WPF adapters. These documents are currently untracked and must be included in the checkpoint.
 - **Leave the existing untracked .claude/ directory out of the commit.** It is user-local configuration. Reinspect status for any additional user changes before staging.
 - Latest validation: 217 existing xUnit/GPU cases plus 21 Core cases passed (238 total, no failures/skips). App and demo builds passed. Existing CS0108 warning persists; demo restore also reported unavailable vulnerability-feed data (NU1900). See NUGET-STAGE2-RESULTS.md for commands, fixture counts and limitations.
 - Tests regenerated artifacts/test-report/index.html for the existing 217 visual/offline cases. The 21 Core tests are independently discoverable in Test Explorer and have TRX output.

@@ -2,7 +2,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
-using VibeDxf;
+using VibeDxf.Wpf;
 using Xunit;
 
 [Collection("Visual checks")]
@@ -26,7 +26,7 @@ public sealed class LayerChecks
         Assert.Equal(["0","BLUE","RED"],doc.Layers.Select(l=>l.Name));
         var blue=doc.Layers[1].Color;var red=doc.Layers[2].Color;
         // Saturated blue/red are lifted just enough to read on the dark background, keeping their hue.
-        Assert.Equal(DxfColors.ForDarkBackground(DxfColors.FromAci(170)),blue);Assert.Equal(DxfColors.ForDarkBackground(DxfColors.FromAci(10)),red);
+        Assert.Equal(DxfColors.FromAci(170),blue);Assert.Equal(DxfColors.FromAci(10),red);
         var (br,bg,bb)=DxfColors.Unpack(blue);Assert.True(bb==255&&br==bg&&br<100,DxfColors.Hex(blue));
         Assert.Equal(blue,Find(doc,"219").Color);Assert.Equal(red,Find(doc,"343").Color);
         // True color 0xF26722 wins over ACI 30.
@@ -38,12 +38,12 @@ public sealed class LayerChecks
         var children=doc.Entities.Where(e=>e.Handle.StartsWith("302[")).ToDictionary(e=>e.Handle[(e.Handle.LastIndexOf('/')+1)..]);
         Assert.Equal(yellow,children["2E3"].Color);Assert.Equal(yellow,children["2E4"].Color);
         Assert.Equal(blue,children["2DD"].Color);Assert.Equal(blue,children["2DE"].Color);
-        Assert.Equal(DxfColors.ForDarkBackground(DxfColors.FromAci(6)),children["2E0"].Color);Assert.Equal(DxfColors.White,children["2DA"].Color);
+        Assert.Equal(DxfColors.FromAci(6),children["2E0"].Color);Assert.Equal(DxfColors.White,children["2DA"].Color);
         Assert.All(children.Values,e=>Assert.Equal("BLUE",e.Layer));
         // Insert 301 (BLUE, BYLAYER): its BYBLOCK children resolve to the insert's own color, blue.
         Assert.Equal(blue,doc.Entities.Single(e=>e.Handle.StartsWith("301[")&&e.Handle.EndsWith("/2E3")).Color);
         // Groups are distinct layer + category pairs and every entity points at its own.
-        Assert.All(doc.Entities,e=>Assert.Equal((doc.Layers.FindIndex(l=>l.Name==e.Layer),e.Category),doc.Groups[e.Group]));
+        Assert.All(doc.Entities,e=>Assert.Equal((doc.Layers.ToList().FindIndex(l=>l.Name==e.Layer),e.Category),doc.Groups[e.Group]));
     });
 
     [Fact]
@@ -55,7 +55,7 @@ public sealed class LayerChecks
         var doc=Public("viewport_frozen_layers.dxf");
         Assert.True(doc.Layers.Single(l=>l.Name=="Layer3").FrozenInFile);Assert.False(doc.Layers.Single(l=>l.Name=="Layer3").VisibleInFile);
         var viewports=doc.Layouts.Single().Viewports;
-        int Layer(string name)=>doc.Layers.FindIndex(l=>l.Name==name);
+        int Layer(string name)=>doc.Layers.ToList().FindIndex(l=>l.Name==name);
         Assert.Equal(["B1","B8","BB"],viewports.Select(v=>v.Handle));
         Assert.Empty(viewports[0].FrozenLayers);Assert.Equal([Layer("Layer1")],viewports[1].FrozenLayers);Assert.Equal([Layer("Layer2")],viewports[2].FrozenLayers);
         Assert.Empty(doc.RenderingWarnings);
@@ -110,7 +110,7 @@ public sealed class LayerChecks
         h.View.Monochrome=true;
         frame=h.Capture("colors.dxf in monochrome");
         Assert.True(h.At(frame,blueCircle,Grey));Assert.False(h.At(frame,orangeCircle,Orange));
-        h.View.Monochrome=false;h.View.SetLayerVisible(doc.Layers.FindIndex(l=>l.Name=="BLUE"),false);
+        h.View.Monochrome=false;h.View.SetLayerVisible(doc.Layers.ToList().FindIndex(l=>l.Name=="BLUE"),false);
         frame=h.Capture("colors.dxf with layer BLUE hidden");
         Assert.False(h.At(frame,blueCircle,Blue));Assert.False(h.At(frame,orangeCircle,Orange));
         // Hidden entities can't be picked.

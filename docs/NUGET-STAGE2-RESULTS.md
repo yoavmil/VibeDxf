@@ -1,4 +1,8 @@
+> Archived: the user cancelled the two-library extraction on 2026-10-22. Its code has been reverted to the original single-project application. This document describes the abandoned implementation, not current APIs.
+
 # NuGet extraction: Stage 2 results
+
+Historical completion report. Stage 3 was subsequently approved and completed; see [Stage 3 results](NUGET-STAGE3-RESULTS.md). The intermediate work is committed as 77ac185.
 
 Date: 2026-10-22. User explicitly approved Stage 2 with "go" after the Stage 1 report. Stage 3 is not approved or started. No commit, tag, package publication or app release was performed.
 
