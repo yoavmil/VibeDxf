@@ -1,6 +1,6 @@
 # Plan: one reusable Windows/WPF DXF package
 
-Date: 2026-10-22. Status: Stages 1-2 complete; Stage 3 explicitly declined by the user. Stages 4-5 complete; Stage 6 approved, awaiting manual upload and public verification; see [Stage 4 results](NUGET-SINGLE-STAGE4-RESULTS.md). Selected MIT license and VibeDxf.Wpf 0.2.0-preview.1; desktop app stays 0.2.0.
+Date: 2026-10-22. Status: Stages 1-2 complete; Stage 3 explicitly declined by the user. Stages 4-5 complete; Stage 6 approved, awaiting trusted publishing setup and public verification; see [Stage 4 results](NUGET-SINGLE-STAGE4-RESULTS.md). Selected MIT license and VibeDxf.Wpf 0.2.0-preview.1; desktop app stays 0.2.0.
 
 This replaces the cancelled [two-package extraction plan](NUGET-SPLIT-PLAN.md). The user requested one library that keeps text shaping and geometry together, and requested programmatic entity traversal and distance queries. The user subsequently declined Stage 3: per-entity visibility and in-memory removal are excluded from the current package. The user subsequently approved Stage 1 with "continue to next step". Its [contract and fresh baseline](NUGET-SINGLE-STAGE1-DESIGN.md) were accepted with subsequent Stage 2 approval (Hebrew-layout "continue"). The one-library extraction is complete. The user declined Stage 3 and explicitly approved Stage 4; do not implement the withdrawn editing/entity-visibility proposals.
 
@@ -126,7 +126,7 @@ Exit: an independent developer can follow the documentation and use the package 
 
 ## Stage 5 — CI and publication preparation
 
-Approval: user explicitly requested Stages 5+6 on 2026-10-22. Status: complete. See [NuGet release instructions](NUGET-RELEASING.md). Added read-only Windows build/test/pack/independent-consumer CI, clean-commit candidate validation, public-feed verification, versioning and recovery policy. The user selected manual upload, so no publication credentials or automatic publishing workflow are required.
+Approval: user explicitly requested Stages 5+6 on 2026-10-22. Status: complete. See [NuGet release instructions](NUGET-RELEASING.md). Added read-only Windows build/test/pack/independent-consumer CI, clean-commit candidate validation, public-feed verification, versioning and recovery policy. The user subsequently requested automation: nuget-publish.yml validates annotated source tags, publishes tested artifacts via OIDC and verifies public consumers. Trust policy creation is a separate permission step.
 
 - Add build/test/pack and independent-consumer CI checks; retain TRX and visual reports. Confirm existing application-release triggers before touching packaging/workflow files.
 - Define preview versioning, API compatibility policy, source-commit verification, release notes and publication recovery. Keep NuGet publication separate from app installer releases.
@@ -136,7 +136,7 @@ Exit: publication artifacts and workflow are reviewable and cannot accidentally 
 
 ## Stage 6 — explicitly approved publication and download verification
 
-Approval: user explicitly requested Stages 5+6 on 2026-10-22 and chose to upload the finished package on nuget.org. Status: release preparation authorized; completion waits for the user's upload and successful clean public-feed consumption. Use the exact candidate/commit/checksums recorded in artifacts/nuget/release/0.2.0-preview.1/validation.json. A nuget/v0.2.0-preview.1 source tag is separate from desktop app release tags.
+Approval: user explicitly requested Stages 5+6 on 2026-10-22 and later requested automated Trusted Publishing. Status: workflow preparation authorized; completion waits for the trust policy and successful publication/public-feed consumption. Use the exact candidate/commit/checksums recorded in artifacts/nuget/release/0.2.0-preview.1/validation.json. A nuget/v0.2.0-preview.1 source tag is separate from desktop app release tags.
 
 - Publish the approved single package and agreed source tag only after explicit authorization for those exact actions. App publication is separate.
 - Restore from the public feed into clean consumers and verify the documented examples and package/source/version agreement.
@@ -146,4 +146,4 @@ Exit: one publicly available package works through the documented APIs and its s
 
 ## Current tracking
 
-Stages 1, 2, 4 and 5 are complete; Stage 3 was declined. Stage 6 is approved and awaits the user's manual nuget.org upload and public verification. The user authorized the exact VibeDxf.Wpf 0.2.0-preview.1 package under MIT; no desktop app release is authorized. Completed extraction was committed as 75d6227; the release preparation receives its own source commit and NuGet tag. See NUGET-RELEASING.md for the candidate, checksums, version/compatibility policy and verification commands. Preserve .claude/ as user-local configuration. Entity visibility/removal remain excluded. The abandoned two-package extraction is historical and must not be resumed.
+Stages 1, 2, 4 and 5 are complete; Stage 3 was declined. Stage 6 is approved and awaits Trusted Publishing setup and successful automated publication/public verification. The user authorized the exact VibeDxf.Wpf 0.2.0-preview.1 package under MIT; no desktop app release is authorized. Completed extraction was committed as 75d6227; the release preparation receives its own source commit and NuGet tag. See NUGET-RELEASING.md for the candidate, checksums, version/compatibility policy and verification commands. Preserve .claude/ as user-local configuration. Entity visibility/removal remain excluded. The abandoned two-package extraction is historical and must not be resumed.

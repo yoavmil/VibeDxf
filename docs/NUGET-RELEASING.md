@@ -1,9 +1,70 @@
 # Publishing VibeDxf.Wpf
 
 The NuGet package is independent of the desktop app release. Version 0.2.0-preview.1,
-MIT, nuget.org publication and a source tag were approved by the user. The user chose
-to upload the finished package through nuget.org; no API key or credential changes
-are needed. Publication remains pending until that upload and public verification.
+MIT, nuget.org publication and a source tag were approved by the user. The user
+subsequently requested automated publishing using GitHub Actions Trusted Publishing.
+The package remains unpublished until the trust policy is approved and a publishing
+run succeeds. No long-lived NuGet API key is stored in the repository.
+
+## Automated publishing setup
+
+The `Publish NuGet` workflow lives in `.github/workflows/nuget-publish.yml`.
+The repository variable `NUGET_USER` is `yoav.miller` (the NuGet profile username).
+On [NuGet Trusted Publishing](https://www.nuget.org/account/trustedpublishing),
+create this policy under package owner `yoav.miller`:
+
+| Field | Value |
+| --- | --- |
+| Policy name | VibeDxf GitHub publishing |
+| Provider | GitHub Actions |
+| Repository owner | yoavmil |
+| Repository | VibeDxf |
+| Workflow file | nuget-publish.yml |
+| Environment | Leave empty (the workflow does not use an environment) |
+| Scope | Push new packages and package versions |
+| Glob patterns/packages | VibeDxf.Wpf |
+| Unlist/relist | Disabled |
+
+The trust policy grants this repository/workflow permission to publish only the
+named package. It does not grant access to other packages owned by the account.
+Creating that policy is a separate permission change from adding workflow source.
+Official [Trusted Publishing instructions](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing).
+
+## Publish with GitHub Actions
+
+For a new version, update the library project version and release notes, commit
+the source, then create and push an annotated `nuget/v<version>` tag for that commit.
+The tag must match the project version. Pushing the tag starts publication.
+
+For an existing tag, use **Actions > Publish NuGet > Run workflow** on main,
+enter its source tag, and enable `publish`. Leave `publish` off for a validation-only
+run: it builds, tests, packs and runs isolated consumers without requesting NuGet
+credentials or publishing. The workflow must be present on the default branch for
+GitHub's Run workflow control to be available.
+
+The existing `nuget/v0.2.0-preview.1` tag stays on source commit `f019536`.
+Use manual dispatch for that first version; do not delete or move its existing tag.
+The newer workflow checks out the tagged source to build and validate it.
+
+The pipeline builds the app/library, runs the regression/GPU suite, packs with the
+exact source commit and runs both independent package consumers. A separate job
+downloads that tested artifact and verifies its SHA-256 before publishing; it does
+not rebuild the package. Only the publishing job can request an OIDC token.
+`NuGet/login@v1` exchanges that token immediately before `dotnet nuget push`.
+The account policy must match the repository and workflow file above.
+
+The final step waits up to ten minutes for indexing, then downloads the public
+package, verifies source metadata and DLL hash and runs both consumers against a
+fresh cache with nuget.org as the only feed. A push is not considered fully verified
+until this final step succeeds. Candidate and public verification artifacts are
+retained for 90 days; regression reports for 14 days. Archive release records before
+artifact expiry.
+
+On rerun, an already indexed version is verified instead of pushed again. A
+different source commit or DLL fails verification. The pipeline does not use
+`--skip-duplicate`, move tags, unlist packages or publish a desktop release. If
+indexing exceeds the wait, rerun later against the same tag. If the package itself
+is wrong, publish a new version.
 
 ## Source, versions and compatibility
 
@@ -36,7 +97,8 @@ $sourceCommit = (git rev-parse HEAD).Trim()
 
 The harness verifies MIT/README/notices/XML docs, exactly one library, the three
 existing Vortice 3.8.3 dependencies, the version, repository URL and exact commit.
-It copies plain public consumers, restores from the candidate to a fresh isolated
+It copies plain public consumers, binds their package reference to the candidate
+version, restores from the candidate to a fresh isolated
 cache, compares the loaded DLL bytes, and runs console and WPF smoke checks.
 No source links, project references or reflection are allowed in consumers.
 NuGet audit is disabled for the isolated smoke restore; this is not a security audit.
@@ -46,8 +108,9 @@ The adjacent `validation.json` and `SHA256SUMS.txt` identify its exact bytes,
 library hash, source commit, contents and validation. Preserve this directory.
 The harness refuses to replace an existing candidate for the same version.
 Development mode without `-Release` remains marked `local-uncommitted` and must
-never be uploaded. CI artifacts are retained for 14 days; archive approved release
-records separately. GPU checks need hardware or the existing WARP fallback.
+never be uploaded. Ordinary NuGet-check artifacts are retained for 14 days; the
+publishing workflow keeps release candidates for 90 days. Archive release records
+separately. GPU checks need hardware or the existing WARP fallback.
 
 ## Source tag and manual upload
 
@@ -62,8 +125,9 @@ Do not upload an uncommitted preview or a rebuilt package with different bytes.
 For first publication, confirm the account is the intended owner before submitting.
 
 Official [NuGet publication instructions](https://learn.microsoft.com/nuget/nuget-org/publish-a-package).
-No publication credentials are stored in this repository, and no automatic
-publication workflow has been enabled for this manually uploaded release.
+Manual upload remains a fallback; choose one publication path per version. An
+automatic run that finds a manually uploaded version verifies its tagged source and
+DLL bytes before reporting success.
 
 ## Public download verification and recovery
 

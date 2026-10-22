@@ -4,7 +4,7 @@ Maintainer instructions for building and publishing Windows downloads. Keep the
 root README focused on users; put release implementation details here.
 
 For the separate library package, follow [NuGet release instructions](docs/NUGET-RELEASING.md).
-NuGet uses `nuget/v<version>` source tags and manual nuget.org upload. The app's
+NuGet uses `nuget/v<version>` source tags and its own Trusted Publishing workflow. The app's
 `v*` tags and release workflow below remain independent.
 
 ## Release contract

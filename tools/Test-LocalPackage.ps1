@@ -182,6 +182,12 @@ EOF
 
 foreach ($taskConsumer in @('ConsoleHost','WpfHost')) {
     $taskConsumerProject = Join-Path $taskConsumers "$taskConsumer/$taskConsumer.csproj"
+    # Bind only the copied samples to the candidate version; keep repository examples untouched.
+    $taskConsumerXml = [xml](Get-Content -LiteralPath $taskConsumerProject -Raw)
+    $taskPackageReference = @($taskConsumerXml.Project.ItemGroup.PackageReference | Where-Object Include -eq 'VibeDxf.Wpf')
+    if ($taskPackageReference.Count -ne 1) { throw 'Expected one VibeDxf.Wpf package reference per consumer.' }
+    $taskPackageReference[0].SetAttribute('Version', "[$taskVersion]")
+    $taskConsumerXml.Save($taskConsumerProject)
     if ((Get-Content -LiteralPath $taskConsumerProject -Raw) -match 'ProjectReference|Compile\s+Include|Link=') { throw 'Consumer is coupled to repository sources.' }
     Invoke-DotNet @('restore', $taskConsumerProject, '--configfile', $taskConfig, '--packages', $taskCache, '--disable-build-servers', '-p:NuGetAudit=false')
     Invoke-DotNet @('build', $taskConsumerProject, '-c', $Configuration, '--no-restore', '--disable-build-servers', '-p:UseAppHost=false')

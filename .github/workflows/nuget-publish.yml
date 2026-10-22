@@ -1,0 +1,168 @@
+name: Publish NuGet
+on:
+  push:
+    tags: ['nuget/v*']
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: 'Existing annotated NuGet source tag'
+        required: true
+        default: 'nuget/v0.2.0-preview.1'
+        type: string
+      publish:
+        description: 'Publish after validation (false performs validation only)'
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: nuget-publish-${{ inputs.source_tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+      version: ${{ steps.source.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify annotated tag and package version
+        id: source
+        shell: pwsh
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag || github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = ([xml](Get-Content src/VibeDxf.Wpf/VibeDxf.Wpf.csproj -Raw)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if ($version -notmatch '^\d+\.\d+\.\d+(-preview\.\d+)?$' -or $env:SOURCE_TAG -cne "nuget/v$version") { throw 'NuGet tag and package version disagree.' }
+          $tagType = (git cat-file -t "refs/tags/$env:SOURCE_TAG").Trim()
+          if ($tagType -ne 'tag') { throw 'An annotated source tag is required.' }
+          $commit = (git rev-parse HEAD).Trim()
+          $tagCommit = (git rev-parse "refs/tags/$env:SOURCE_TAG^{commit}").Trim()
+          if ($tagCommit -cne $commit) { throw 'Tag and checkout differ.' }
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Build app and library
+        run: dotnet build VibeDxf.sln -c Release
+      - name: Regression and GPU checks
+        run: dotnet test Tests/VibeDxf.Checks.csproj -c Release --no-build --logger "trx;LogFileName=nuget-publish.trx"
+      - name: Pack exact source and validate isolated consumers
+        shell: pwsh
+        env:
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: ./tools/Test-LocalPackage.ps1 -Release -ExpectedCommit $env:SOURCE_COMMIT
+      - name: Preserve tested candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 90
+          if-no-files-found: error
+          path: artifacts/nuget/release/
+      - name: Preserve test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          path: |
+            Tests/TestResults/
+            artifacts/test-report/
+            artifacts/nuget/validation/**/summary.json
+            artifacts/nuget/validation/**/console-output.txt
+            artifacts/nuget/validation/**/wpf-smoke.json
+  publish:
+    needs: validate
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: windows-2025
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/nuget/candidate
+      - name: Verify candidate and check existing public version
+        id: candidate
+        shell: pwsh
+        env:
+          PACKAGE_VERSION: ${{ needs.validate.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.validate.outputs.commit }}
+          NUGET_USER: ${{ vars.NUGET_USER }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:NUGET_USER)) { throw 'Configure the NUGET_USER repository variable with your nuget.org profile username.' }
+          $folder = Join-Path $PWD "artifacts/nuget/candidate/$env:PACKAGE_VERSION"
+          $manifest = Get-Content (Join-Path $folder 'validation.json') -Raw | ConvertFrom-Json
+          $package = Join-Path $folder "VibeDxf.Wpf.$env:PACKAGE_VERSION.nupkg"
+          if ($manifest.Version -cne $env:PACKAGE_VERSION -or $manifest.RepositoryCommit -cne $env:SOURCE_COMMIT -or
+              -not $manifest.ConsolePassed -or -not $manifest.Wpf.Passed -or
+              (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash -ne $manifest.PackageSha256) { throw 'Tested candidate provenance/hash mismatch.' }
+          $exists = $false
+          try {
+            Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/vibedxf.wpf/$env:PACKAGE_VERSION/vibedxf.wpf.$env:PACKAGE_VERSION.nupkg" -Method Head | Out-Null
+            $exists = $true
+          } catch { if ([int]$_.Exception.Response.StatusCode -ne 404) { throw } }
+          "exists=$($exists.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "package=$package" >> $env:GITHUB_OUTPUT
+          "library_hash=$($manifest.LibrarySha256)" >> $env:GITHUB_OUTPUT
+      - name: Authenticate to NuGet using trusted publishing
+        if: steps.candidate.outputs.exists == 'false'
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - name: Push the tested package
+        if: steps.candidate.outputs.exists == 'false'
+        shell: pwsh
+        env:
+          PACKAGE_FILE: ${{ steps.candidate.outputs.package }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push $env:PACKAGE_FILE --api-key $env:NUGET_API_KEY --source https://api.nuget.org/v3/index.json --timeout 300
+          if ($LASTEXITCODE -ne 0) { throw 'NuGet push failed; inspect public availability before retrying.' }
+      - name: Verify public download and isolated consumers
+        shell: pwsh
+        env:
+          PACKAGE_VERSION: ${{ needs.validate.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.validate.outputs.commit }}
+          LIBRARY_HASH: ${{ steps.candidate.outputs.library_hash }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $available = $false
+          for ($attempt = 0; $attempt -lt 20; $attempt++) {
+            try {
+              Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/vibedxf.wpf/$env:PACKAGE_VERSION/vibedxf.wpf.$env:PACKAGE_VERSION.nupkg" -Method Head | Out-Null
+              $available = $true
+              break
+            } catch { if ([int]$_.Exception.Response.StatusCode -ne 404) { throw } }
+            Write-Host 'Waiting for NuGet indexing...'
+            Start-Sleep -Seconds 30
+          }
+          if (-not $available) { throw 'Package is not indexed yet; rerun verification later. Do not move the tag or reuse the version.' }
+          ./tools/Test-LocalPackage.ps1 -PublicFeed -ExpectedCommit $env:SOURCE_COMMIT -ExpectedLibrarySha256 $env:LIBRARY_HASH
+      - name: Retain public verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-public-verification-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 90
+          path: |
+            artifacts/nuget/validation/**/summary.json
+            artifacts/nuget/validation/**/console-output.txt
+            artifacts/nuget/validation/**/wpf-smoke.json
