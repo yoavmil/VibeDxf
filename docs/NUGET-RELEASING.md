@@ -2,6 +2,8 @@
 
 ## Stable 0.2.0
 
+Published and publicly verified. See [stable release results](NUGET-STABLE-0.2.0-RESULTS.md).
+
 The user explicitly approved publishing `VibeDxf.Wpf 0.2.0` as a stable release on
 2026-10-22. It promotes the verified preview with no public API or runtime behavior
 changes. The package README, release metadata and independent sample references
