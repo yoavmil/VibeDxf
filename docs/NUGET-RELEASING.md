@@ -66,6 +66,16 @@ different source commit or DLL fails verification. The pipeline does not use
 indexing exceeds the wait, rerun later against the same tag. If the package itself
 is wrong, publish a new version.
 
+When the existing version was uploaded manually or built with a different SDK,
+its DLL can differ from a fresh CI rebuild of the same source. For that case only,
+manual dispatch accepts `existing_library_sha256`: copy it from the original
+approved candidate's validation.json (not from an unverified public download).
+It is rejected if the package is not already public, and never changes which bytes
+can be pushed for a new version. The public package must still match the exact
+tagged commit, metadata, contents and that approved checksum, and both consumers
+must pass. Leave this input empty for normal new releases. Authentication is also
+tested on existing-version runs; dry runs never request credentials.
+
 ## Source, versions and compatibility
 
 - The library project owns the NuGet version; the desktop app remains 0.2.0.

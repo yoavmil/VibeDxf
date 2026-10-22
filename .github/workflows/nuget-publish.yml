@@ -13,6 +13,10 @@ on:
         description: 'Publish after validation (false performs validation only)'
         default: false
         type: boolean
+      existing_library_sha256:
+        description: 'Optional approved DLL checksum for an already published/manual release; never used for a new push'
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -104,6 +108,7 @@ jobs:
           PACKAGE_VERSION: ${{ needs.validate.outputs.version }}
           SOURCE_COMMIT: ${{ needs.validate.outputs.commit }}
           NUGET_USER: ${{ vars.NUGET_USER }}
+          EXISTING_LIBRARY_HASH: ${{ inputs.existing_library_sha256 }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ([string]::IsNullOrWhiteSpace($env:NUGET_USER)) { throw 'Configure the NUGET_USER repository variable with your nuget.org profile username.' }
@@ -118,11 +123,15 @@ jobs:
             Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/vibedxf.wpf/$env:PACKAGE_VERSION/vibedxf.wpf.$env:PACKAGE_VERSION.nupkg" -Method Head | Out-Null
             $exists = $true
           } catch { if ([int]$_.Exception.Response.StatusCode -ne 404) { throw } }
+          $libraryHash = $manifest.LibrarySha256
+          if ($env:EXISTING_LIBRARY_HASH) {
+            if (-not $exists -or $env:EXISTING_LIBRARY_HASH -notmatch '^[0-9A-Fa-f]{64}$') { throw 'An approved existing checksum is only valid for a package already indexed on nuget.org.' }
+            $libraryHash = $env:EXISTING_LIBRARY_HASH
+          }
           "exists=$($exists.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           "package=$package" >> $env:GITHUB_OUTPUT
-          "library_hash=$($manifest.LibrarySha256)" >> $env:GITHUB_OUTPUT
+          "library_hash=$libraryHash" >> $env:GITHUB_OUTPUT
       - name: Authenticate to NuGet using trusted publishing
-        if: steps.candidate.outputs.exists == 'false'
         id: login
         uses: NuGet/login@v1
         with:
