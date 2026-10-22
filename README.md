@@ -2,13 +2,13 @@
 
 <img src="src/Assets/VibeDxf.svg" width="80" height="80" alt="VibeDxf icon">
 
-**[Download the Windows x64 installer](https://github.com/yoavmil/VibeDxf/releases/download/v0.1.1/VibeDxf-Setup-0.1.1-win-x64.exe)**
+**[Download the Windows x64 installer](https://github.com/yoavmil/VibeDxf/releases/download/v0.2.0/VibeDxf-Setup-0.2.0-win-x64.exe)**
 
 ![VibeDxf measuring from a wavy spline underline to the center of the circle inside b](docs/images/VibeDxf-demo.png)
 
-A truly-free 2D DXF viewer for Windows. I made this because the commercial DXF viewers requiers registration.
+A truly-free 2D DXF viewer for Windows. I made this because the commercial DXF viewers requires registration.
 
-This viewer can load large files and can measures the shortest distance between any two elements.
+This viewer can load large files and can measure the shortest distance between any two elements.
 
 Written in C# / WPF on .NET 10, with GPU rendering through Direct3D 11 and Direct2D ([Vortice.Windows](https://github.com/amerkoleci/Vortice.Windows)).
 
@@ -22,7 +22,7 @@ It's called `VibeDxf` because it was all written with vibe coding, Claude + Code
 
 ## Build and run
 
-I use VS2026. The build and run are straightfoward.
+I use VS2026. The build and run are straightforward.
 
 ## Supported DXF
 
@@ -58,7 +58,7 @@ When saved-off layers hide content, the panel opens by itself with a **Show all*
 
 CAD drawings often keep model space as a scratch area: each detail is drawn once at full size, scattered around. The sheets (paper layouts) arrange those details at chosen scales with a title block. When a drawing has real sheets, tabs below the drawing switch between **Model** and each sheet, in the drawing's tab order (`Ctrl+PgUp`/`Ctrl+PgDn` also switch). Most DXF files carry unused default layouts (Layout1, Layout2). A layout only gets a tab if it adds something beyond model space: its own paper-space content, or more than one viewport. Otherwise there are no tabs. A sheet shows its title block and other paper-space content. Each viewport window shows model space at its own scale and rotation, clipped to its frame, as in a plotted sheet. On a sheet, paper-space elements are selected and measured in paper units. Clicking inside a viewport window selects the model geometry shown there, measured in model units; its highlight stays inside that window, and layers frozen in that viewport can't be picked. A measurement never mixes the two: picking a paper element after a model element starts a new selection.
 
-Only top-down (plan) viewports are drawn; 3D views are skipped with a warning. Viewports that are switched off draw nothing. Non-rectangular clip boundaries are shown as their rectangle, and per-viewport frozen layers are still shown; both add a rendering note.
+Only top-down (plan) viewports are drawn; 3D views are skipped with a warning. Viewports that are switched off draw nothing. Non-rectangular clip boundaries are shown as their rectangle with a rendering note. Layers frozen in a viewport are hidden in that viewport.
 
 Not supported yet: gradient hatches, excessively dense hatch patterns, multiline attributes, standalone ELLIPSE entities, binary DXF, external references, block clipping/dynamic block behavior and general 3D/OCS geometry. XY-plane OCS with either normal direction is supported for the new planar primitives and inserts. Unsupported entity types trigger a warning and are counted in the footer. Linetypes and lineweights are not applied. Non-ASCII layer names from legacy code pages may need encoding support.
 

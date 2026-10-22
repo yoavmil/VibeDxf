@@ -18,7 +18,7 @@ root README focused on users; put release implementation details here.
 
 | File | Purpose |
 | --- | --- |
-| [packaging/version.txt](packaging/version.txt) | Default release version, without the `v` prefix; currently `0.1.1`. |
+| [packaging/version.txt](packaging/version.txt) | Default release version, without the `v` prefix; currently `0.2.0`. |
 | [src/VibeDxf.csproj](src/VibeDxf.csproj) | App version, target framework, dependencies, and executable icon. |
 | [packaging/RELEASE_NOTES.md](packaging/RELEASE_NOTES.md) | Release description uploaded to GitHub. Update headings and download filenames for each version. |
 | [packaging/requirements.txt](packaging/requirements.txt) | Requirements shown before installation and copied into the portable app as `REQUIREMENTS.txt`. |
@@ -36,7 +36,7 @@ The window icon is also referenced in [src/MainWindow.xaml](src/MainWindow.xaml)
 1. Start from the latest `main`, including any README edits made on GitHub.
    Preserve local work before synchronizing; do not overwrite the user-facing README
    with an older local copy.
-2. Choose an unused version in `major.minor.patch` form, for example `0.1.1`.
+2. Choose an unused version in `major.minor.patch` form, for example `0.2.0`.
    Set `packaging/version.txt` and the project `<Version>` to that version.
 3. Update `packaging/RELEASE_NOTES.md`, including its title and asset filenames.
    Review requirements, dependency notices, and icon references if those changed.
@@ -60,7 +60,7 @@ The window icon is also referenced in [src/MainWindow.xaml](src/MainWindow.xaml)
    version and commit, all three assets, requirements, and working download links.
    The installer should show the VibeDxf icon and offer the optional desktop shortcut.
 8. Update the README's direct installer link to the new version. It currently pins
-   `v0.1.1`, so publishing a new release does not change that link automatically.
+   `v0.2.0`, so publishing a new release does not change that link automatically.
 
 You can also start the workflow from GitHub's **Actions > Windows release > Run
 workflow** on `main`. It also accepts pushed `v*` tags, but a tag-triggered run must
@@ -103,7 +103,7 @@ Run from the repository root:
 .\packaging\Build-Installer.ps1
 
 # Optional explicit version or compiler location
-.\packaging\Build-Installer.ps1 -Version 0.1.1 -IsccPath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+.\packaging\Build-Installer.ps1 -Version 0.2.0 -IsccPath "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 
 # Publish app and portable ZIP only; no Inno Setup needed
 .\packaging\Build-Installer.ps1 -PublishOnly
