@@ -3,8 +3,9 @@
 The NuGet package is independent of the desktop app release. Version 0.2.0-preview.1,
 MIT, nuget.org publication and a source tag were approved by the user. The user
 subsequently requested automated publishing using GitHub Actions Trusted Publishing.
-The package remains unpublished until the trust policy is approved and a publishing
-run succeeds. No long-lived NuGet API key is stored in the repository.
+The trust policy is now active, and 0.2.0-preview.1 is publicly available from the
+original approved local candidate. No long-lived NuGet API key is stored in the
+repository. See the [Stage 6 results](NUGET-STAGE6-RESULTS.md) for public consumer verification evidence.
 
 ## Automated publishing setup
 

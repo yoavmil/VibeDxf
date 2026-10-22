@@ -2,7 +2,20 @@
 
 These examples use only `PackageReference` to **VibeDxf.Wpf 0.2.0-preview.1**. They have no project reference, linked production source, reflection into internals or extra text-preparation provider.
 
-Requirements: Windows 10 or later and .NET 10 SDK with WPF support to build. Running requires .NET 10 Desktop Runtime. The package uses the existing Vortice packages transitively. The preview is local only; it has not been published to NuGet.org.
+Requirements: Windows 10 or later and .NET 10 SDK with WPF support to build. Running requires .NET 10 Desktop Runtime. The package uses the existing Vortice packages transitively. [VibeDxf.Wpf 0.2.0-preview.1 is available on NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.2.0-preview.1).
+
+## Use the published package
+
+```powershell
+dotnet restore samples/PackageConsumers/WpfHost/WpfHost.csproj --configfile samples/PackageConsumers/NuGet.Public.Config
+dotnet run --project samples/PackageConsumers/WpfHost/WpfHost.csproj --no-restore -- "C:\drawings\example.dxf"
+
+dotnet restore samples/PackageConsumers/ConsoleHost/ConsoleHost.csproj --configfile samples/PackageConsumers/NuGet.Public.Config
+dotnet run --project samples/PackageConsumers/ConsoleHost/ConsoleHost.csproj --no-restore -- "C:\drawings\example.dxf"
+```
+
+This config uses nuget.org as the only feed. The separate `NuGet.Config` below is
+for local development candidates; use `NuGet.Public.Config` for the public package.
 
 ## Build the local preview and verify both hosts
 

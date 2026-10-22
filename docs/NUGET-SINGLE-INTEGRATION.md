@@ -4,6 +4,8 @@ Stage 2, 2026-10-22. This is the implemented single Windows/WPF library, not the
 
 Reference `src/VibeDxf.Wpf/VibeDxf.Wpf.csproj` from a `net10.0-windows` project with `UseWPF=true`. The one library includes parsing, text shaping, numeric geometry, measurements and the viewer. Its Vortice 3.8.3 references flow transitively; no separate Core dependency or text-preparation provider is needed.
 
+[VibeDxf.Wpf 0.2.0-preview.1 is now public on NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.2.0-preview.1); see [publication and automation results](NUGET-STAGE6-RESULTS.md) and the package consumer examples for public-feed restore instructions.
+
 ## Document-only loading and measurements
 
 ```csharp
