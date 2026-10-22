@@ -10,7 +10,7 @@
   <RepositoryUrl>https://github.com/yoavmil/VibeDxf</RepositoryUrl><RepositoryType>git</RepositoryType>
   <PackageLicenseExpression>MIT</PackageLicenseExpression><PackageReadmeFile>README.md</PackageReadmeFile>
   <Copyright>Copyright (c) 2026 Yoav Miller and contributors</Copyright>
-  <PackageReleaseNotes>First local preview of the single Windows/WPF library. Includes prepared TEXT/MTEXT geometry, source-based entity traversal, measurements, layout and layer/category controls. Per-entity visibility, document editing and DXF writing are not included.</PackageReleaseNotes>
+  <PackageReleaseNotes>First preview of the single Windows/WPF library. Includes prepared TEXT/MTEXT geometry, source-based entity traversal, measurements, layout and layer/category controls. Requires Windows and .NET 10 Desktop Runtime. Per-entity visibility, document editing and DXF writing are not included.</PackageReleaseNotes>
   <GenerateDocumentationFile>true</GenerateDocumentationFile>
  </PropertyGroup>
  <ItemGroup>

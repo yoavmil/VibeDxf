@@ -1,5 +1,6 @@
 [CmdletBinding()]
-param([string]$Configuration = 'Release')
+param([string]$Configuration = 'Release', [switch]$Release, [switch]$PublicFeed,
+    [string]$ExpectedCommit, [string]$ExpectedLibrarySha256)
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 $taskRoot = Split-Path $PSScriptRoot -Parent
@@ -8,18 +9,36 @@ $taskVersion = ([xml](Get-Content -LiteralPath $taskProject -Raw)).Project.Prope
 $taskFeed = Join-Path $taskRoot 'artifacts/nuget/local'
 $taskRun = Join-Path $taskRoot ('artifacts/nuget/validation/' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $taskFeed,$taskRun | Out-Null
+$taskHead = (& git -C $taskRoot rev-parse HEAD).Trim()
+$taskCommit = 'local-uncommitted'
+if ($PublicFeed -and ($ExpectedCommit -notmatch '^[0-9a-f]{40}$' -or $ExpectedLibrarySha256 -notmatch '^[0-9A-Fa-f]{64}$')) {
+    throw 'Public verification requires the approved full ExpectedCommit and ExpectedLibrarySha256 from validation.json.'
+}
+if ($Release -and -not $PublicFeed -and (Test-Path (Join-Path $taskRoot "artifacts/nuget/release/$taskVersion"))) {
+    throw 'A release candidate already exists for this version. Preserve it; use a separate clean checkout to rebuild.'
+}
+if ($Release -or $PublicFeed) {
+    $taskChanges = @(& git -C $taskRoot status --porcelain --untracked-files=all | Where-Object { $_ -notmatch '^\?\? \.claude/' })
+    if ($taskChanges.Count) { throw 'Release validation requires a clean source checkout (except local .claude configuration).' }
+    $taskCommit = $taskHead
+    if ($ExpectedCommit -and $ExpectedCommit -cne $taskHead) { throw 'ExpectedCommit must equal the full source HEAD SHA.' }
+}
 
 function Invoke-DotNet([string[]]$Arguments) {
     & dotnet @Arguments
     if ($LASTEXITCODE -ne 0) { throw "dotnet failed ($LASTEXITCODE): $($Arguments -join ' ')" }
 }
 
-Invoke-DotNet @('restore', $taskProject, '--disable-build-servers', '-p:NuGetAudit=false')
-# Local artifacts describe the uncommitted working tree, never falsely attribute its contents to historical HEAD.
-Invoke-DotNet @('pack', $taskProject, '-c', $Configuration, '--no-restore', '--disable-build-servers', '-o', $taskFeed,
-    '-p:RepositoryCommit=local-uncommitted', '-p:IncludeSourceRevisionInInformationalVersion=false',
-    ('-p:NuspecOutputPath=' + (Join-Path $taskRun 'nuspec')))
-$taskPackage = Join-Path $taskFeed "VibeDxf.Wpf.$taskVersion.nupkg"
+if ($PublicFeed) {
+    $taskPackage = Join-Path $taskRun "VibeDxf.Wpf.$taskVersion.nupkg"
+    Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/vibedxf.wpf/$taskVersion/vibedxf.wpf.$taskVersion.nupkg" -OutFile $taskPackage
+} else {
+    Invoke-DotNet @('restore', $taskProject, '--disable-build-servers', '-p:NuGetAudit=false')
+    Invoke-DotNet @('pack', $taskProject, '-c', $Configuration, '--no-restore', '--disable-build-servers', '-o', $taskFeed,
+        "-p:RepositoryCommit=$taskCommit", '-p:IncludeSourceRevisionInInformationalVersion=false',
+        ('-p:NuspecOutputPath=' + (Join-Path $taskRun 'nuspec')))
+    $taskPackage = Join-Path $taskFeed "VibeDxf.Wpf.$taskVersion.nupkg"
+}
 $taskArchive = [IO.Compression.ZipFile]::OpenRead($taskPackage)
 try {
     $taskNames = @($taskArchive.Entries.FullName)
@@ -36,13 +55,16 @@ try {
     try { $taskNuspec = [xml]$taskNuspecReader.ReadToEnd() } finally { $taskNuspecReader.Dispose() }
     $taskMetadata = $taskNuspec.package.metadata
     if ($taskMetadata.id -ne 'VibeDxf.Wpf' -or $taskMetadata.version -ne $taskVersion -or
-        $taskMetadata.license.'#text' -ne 'MIT' -or $taskMetadata.repository.commit -ne 'local-uncommitted') { throw 'Package metadata does not match the approved local preview.' }
+        $taskMetadata.license.'#text' -ne 'MIT' -or $taskMetadata.repository.commit -cne $taskCommit -or
+        $taskMetadata.repository.url -ne 'https://github.com/yoavmil/VibeDxf') { throw 'Package metadata does not match the approved source and preview.' }
     $taskDependencies = @($taskMetadata.dependencies.group.dependency)
     if (($taskDependencies.id | Sort-Object) -join ',' -ne 'Vortice.D3DCompiler,Vortice.Direct2D1,Vortice.Direct3D11' -or
         @($taskDependencies | Where-Object version -ne '3.8.3').Count -ne 0) { throw 'Unexpected package dependencies.' }
     [IO.Compression.ZipFileExtensions]::ExtractToFile($taskLibrary[0], (Join-Path $taskRun 'package-library.dll'))
     $taskEntries = @($taskArchive.Entries | Select-Object FullName, Length)
 } finally { $taskArchive.Dispose() }
+$taskLibraryHash = (Get-FileHash -LiteralPath (Join-Path $taskRun 'package-library.dll')).Hash
+if ($PublicFeed -and $taskLibraryHash -ne $ExpectedLibrarySha256) { throw 'Public DLL differs from the approved release candidate.' }
 
 # Copy plain consumer sources, then restore into a fresh cache; no repository ProjectReference or shared source link.
 $taskSamples = Join-Path $taskRoot 'samples/PackageConsumers'
@@ -63,6 +85,9 @@ $taskEscapedFeed = [Security.SecurityElement]::Escape($taskFeed)
 </configuration>
 "@ | Set-Content -LiteralPath $taskConfig -Encoding utf8
 $taskCache = Join-Path $taskRun 'packages'
+if ($PublicFeed) {
+    '<configuration><packageSources><clear/><add key="nuget.org" value="https://api.nuget.org/v3/index.json"/></packageSources></configuration>' | Set-Content -LiteralPath $taskConfig -Encoding utf8
+}
 $taskFixture = Join-Path $taskRun 'package-smoke.dxf'
 @'
 0
@@ -168,7 +193,9 @@ foreach ($taskConsumer in @('ConsoleHost','WpfHost')) {
     if ($taskAssets.packageFolders.Keys.Count -ne 1 -or -not ([IO.Path]::GetFullPath(@($taskAssets.packageFolders.Keys)[0]).TrimEnd([char[]]'\/') -eq [IO.Path]::GetFullPath($taskCache))) { throw 'Consumer did not use the isolated package cache.' }
 }
 $taskPackageMetadata = Get-Content -LiteralPath (Join-Path $taskCache "vibedxf.wpf/$taskVersion/.nupkg.metadata") -Raw | ConvertFrom-Json
-if ([IO.Path]::GetFullPath($taskPackageMetadata.source).TrimEnd([char[]]'\/') -ne [IO.Path]::GetFullPath($taskFeed)) { throw 'Preview was not restored from the local feed.' }
+if ($PublicFeed) {
+    if ($taskPackageMetadata.source.TrimEnd('/') -ne 'https://api.nuget.org/v3/index.json') { throw 'Preview was not restored from nuget.org.' }
+} elseif ([IO.Path]::GetFullPath($taskPackageMetadata.source).TrimEnd([char[]]'\/') -ne [IO.Path]::GetFullPath($taskFeed)) { throw 'Preview was not restored from the local feed.' }
 $taskConsole = Join-Path $taskConsumers "ConsoleHost/bin/$Configuration/net10.0-windows/ConsoleHost.dll"
 & dotnet $taskConsole $taskFixture --smoke | Tee-Object -FilePath (Join-Path $taskRun 'console-output.txt')
 if ($LASTEXITCODE -ne 0) { throw 'Packed console consumer failed.' }
@@ -181,11 +208,24 @@ if ($taskWpfProcess.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $taskWpfRepo
 $taskWpfResult = Get-Content -LiteralPath $taskWpfReport -Raw | ConvertFrom-Json
 if (-not $taskWpfResult.Passed) { throw 'Packed WPF consumer reported failure.' }
 $taskHead = (& git -C $taskRoot rev-parse HEAD).Trim()
+if ($Release -or $PublicFeed) {
+    if ($taskHead -cne $taskCommit -or @(& git -C $taskRoot status --porcelain --untracked-files=all | Where-Object { $_ -notmatch '^\?\? \.claude/' }).Count) {
+        throw 'Source changed during validation; no release candidate will be saved.'
+    }
+}
 $taskSummary = [ordered]@{
     Package = $taskPackage; Version = $taskVersion; PackageSha256 = (Get-FileHash -LiteralPath $taskPackage).Hash
-    BaseGitHead = $taskHead; RepositoryCommit = 'local-uncommitted'; Published = $false
+    LibrarySha256 = $taskLibraryHash
+    BaseGitHead = $taskHead; RepositoryCommit = $taskCommit; PublicFeedVerified = [bool]$PublicFeed
     PackageEntries = $taskEntries; Dependencies = $taskDependencies; IsolatedCache = $taskCache
     ConsolePassed = $true; Wpf = $taskWpfResult; ValidationDirectory = $taskRun
 }
 $taskSummary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $taskRun 'summary.json') -Encoding utf8
+if ($Release -and -not $PublicFeed) {
+    $taskRelease = Join-Path $taskRoot "artifacts/nuget/release/$taskVersion"
+    New-Item -ItemType Directory -Force -Path $taskRelease | Out-Null
+    Copy-Item -LiteralPath $taskPackage -Destination $taskRelease
+    $taskSummary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $taskRelease 'validation.json') -Encoding utf8
+    "$($taskSummary.PackageSha256)  $([IO.Path]::GetFileName($taskPackage))" | Set-Content -LiteralPath (Join-Path $taskRelease 'SHA256SUMS.txt') -Encoding ascii
+}
 Write-Output "Local package validation passed. Report: $(Join-Path $taskRun 'summary.json')"

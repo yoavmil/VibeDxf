@@ -14,7 +14,7 @@ From the repository root in PowerShell 7:
 
 The script packs the library into `artifacts/nuget/local/`, checks metadata/contents, copies these sources into a new validation directory, and restores into a fresh isolated package cache. It checks that both consumers received the packed DLL bytes, that the preview came from the local feed, and that dependency resolution was transitive. It then runs document-only and hidden WPF smoke checks against a generated synthetic drawing. Reports, consumer builds, downloaded packages and the fixture remain under `artifacts/nuget/validation/<run-id>/`.
 
-The local package is intentionally marked `repository commit="local-uncommitted"` rather than attributing uncommitted source changes to historical Git HEAD. This local-only provenance marker must be replaced with the exact approved clean source commit before future publication. The script does not commit, push, tag or publish. Restores disable NuGet audit for this local integration check; audit success is not implied.
+Development packages are intentionally marked `repository commit="local-uncommitted"`. For a release candidate, commit the source and run `./tools/Test-LocalPackage.ps1 -Release -ExpectedCommit (git rev-parse HEAD)`; it requires clean source, records the exact commit and saves the tested candidate/checksums in `artifacts/nuget/release/<version>/`. The script does not commit, push, tag or publish. Restores disable NuGet audit for this integration check; audit success is not implied. See [NuGet release instructions](../../docs/NUGET-RELEASING.md) for manual upload and subsequent public-only restore verification with the approved commit and DLL hash.
 
 ## Open the WPF sample interactively
 
