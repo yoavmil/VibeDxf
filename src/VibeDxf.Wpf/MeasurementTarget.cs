@@ -1,14 +1,21 @@
 using System.Windows;
-namespace VibeDxf;
+namespace VibeDxf.Wpf;
 
-public enum MeasurementStrategy { Closest, Center }
+/// <summary>How an entity contributes its point to a distance query.</summary>
+public enum MeasurementStrategy
+{
+    /// <summary>Use the closest point on prepared geometry.</summary>
+    Closest,
+    /// <summary>Use the center for standalone analytic ARC/CIRCLE entities; otherwise use Closest.</summary>
+    Center
+}
 
 /// <summary>
 /// A whole element or the exact midpoint of one of its straight segments. On a sheet, model geometry picked through
 /// a layout viewport keeps that <paramref name="Viewport"/>: its coordinates and measurements stay in model units and
 /// only its display is mapped onto the sheet.
 /// </summary>
-public sealed record MeasurementTarget(DxfEntity Entity, int? MidpointSegment = null, DxfViewportWindow? Viewport = null)
+internal sealed record MeasurementTarget(DxfEntity Entity, int? MidpointSegment = null, DxfViewportWindow? Viewport = null)
 {
     /// <summary>Maps a point of this target's own space onto the displayed sheet (identity outside viewports).</summary>
     public Point ToDisplay(Point p) => Viewport?.ModelToPaper.Transform(p) ?? p;
@@ -37,7 +44,7 @@ public sealed record MeasurementTarget(DxfEntity Entity, int? MidpointSegment = 
 }
 
 /// <summary>Two sorted indexes avoid scanning the drawing on every pointer move.</summary>
-public sealed class MidpointIndex
+internal sealed class MidpointIndex
 {
     private readonly Entry[] byX;
     private readonly Entry[] byY;

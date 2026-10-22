@@ -4,10 +4,16 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
-using VibeDxf;
+using VibeDxf.Wpf;
 
 internal static class Program
 {
+ static void Await(Task task)
+ {
+  var dispatcher=Dispatcher.CurrentDispatcher;var frame=new DispatcherFrame();
+  _=task.ContinueWith(_=>dispatcher.BeginInvoke(()=>frame.Continue=false),TaskScheduler.Default);
+  if(!task.IsCompleted)Dispatcher.PushFrame(frame);task.GetAwaiter().GetResult();
+ }
  [STAThread]
  static void Main()
  {
@@ -89,21 +95,21 @@ internal static class Program
   var underlineHandle=handle.ToString("X");Spline(underline.ToArray(),3,underlineKnots.ToArray(),"MEASURE_WAVY_UNDERLINE");
   Pair(0,"ENDSEC");Pair(0,"EOF");
   var dxf=Path.Combine(folder,"VibeDxf-demo.dxf");File.WriteAllLines(dxf,output);
-  var doc=DxfReader.Load(dxf);if(doc.Skipped.Count!=0)throw new Exception("Demo includes unsupported geometry.");
+  var load=DxfDocument.LoadAsync(dxf);Await(load);var doc=load.Result.Document;if(doc.Skipped.Count!=0)throw new Exception("Demo includes unsupported geometry.");
   var arc=doc.Entities.Single(e=>e.Handle==selectedHandle);var wave=doc.Entities.Single(e=>e.Handle==underlineHandle);
-  var measurement=new MeasurementTarget(wave).Distance(new MeasurementTarget(arc),MeasurementStrategy.Closest,MeasurementStrategy.Center);
-  var view=new DxfViewport();
+  var measurement=doc.Measure(new(wave.Id),new(arc.Id),MeasurementStrategy.Closest,MeasurementStrategy.Center);
+  using var view=new DxfView();
   var window=new Window{Content=view,Width=1500,Height=500,WindowStyle=WindowStyle.None,ShowInTaskbar=false,ShowActivated=false,
    WindowStartupLocation=WindowStartupLocation.Manual,Left=-20000,Top=-20000};
   const BindingFlags flags=BindingFlags.Instance|BindingFlags.NonPublic;
-  object? Call(string name,params object[] args)=>typeof(DxfViewport).GetMethod(name,flags)!.Invoke(view,args);
+  object? Call(string name,params object[] args)=>typeof(DxfViewport).GetMethod(name,flags)!.Invoke(view.Child,args);
   try
   {
-   window.Show();view.SetDocument(doc);Dispatcher.CurrentDispatcher.Invoke(()=>{},DispatcherPriority.ApplicationIdle);
-   Call("SelectAt",wave.Curves[wave.Curves.Count/2].Start,false);Call("SelectAt",arc.Curves[0].At(.5),false);
-   view.SecondStrategy=MeasurementStrategy.Center;
-   if(view.Selected.Count!=2 || view.Selected[0].Entity!=wave || view.Selected[1].Entity!=arc || view.Measurement?.B!=innerCenter)throw new Exception("Demo targets could not be selected.");
-   var host=typeof(DxfViewport).GetField("host",flags)!.GetValue(view)!;
+   window.Show();Await(view.SetDocumentAsync(doc));Dispatcher.CurrentDispatcher.Invoke(()=>{},DispatcherPriority.ApplicationIdle);
+   view.Select(new(wave.Id));view.Select(new(arc.Id));
+   view.SecondMeasurementStrategy=MeasurementStrategy.Center;
+   if(view.Selected.Count!=2 || view.Selected[0].Entity!=wave || view.Selected[1].Entity!=arc || view.Measurement?.Pair?.B!=innerCenter)throw new Exception("Demo targets could not be selected.");
+   var host=typeof(DxfViewport).GetField("host",flags)!.GetValue(view.Child)!;
    var renderer=(DrawingRenderer)host.GetType().GetProperty("Renderer")!.GetValue(host)!;
    Directory.CreateDirectory(VisualReport.DirectoryPath);
    VisualReport.Capture(renderer,"VibeDxf demo",()=>Call("RenderNow"));

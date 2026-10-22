@@ -1,64 +1,27 @@
 using System.Globalization;
 using System.IO;
 using System.Windows;
-namespace VibeDxf;
-// A paper-space window onto model space; ModelToPaper follows ezdxf (top views only).
-public sealed record DxfViewportWindow(string Handle, Rect Paper, System.Windows.Media.Matrix ModelToPaper)
-{
-    /// <summary>Indices into <see cref="DxfDocument.Layers"/> frozen in this viewport only (group 331).</summary>
-    public int[] FrozenLayers { get; init; } = [];
-}
-/// <summary>A LAYER table entry. On/frozen describe the state saved in the file, not the viewer's current state.</summary>
-public sealed record DxfLayer(string Name, uint Color, bool OnInFile, bool FrozenInFile, bool Plot, string Linetype)
-{
-    public bool VisibleInFile => OnInFile && !FrozenInFile;
-}
-/// <summary>One paper layout (sheet tab): its paper-space entities and the viewports that show model space.</summary>
-public sealed class DxfLayout(string name)
-{
-    public string Name { get; } = name;
-    public List<DxfEntity> Entities { get; } = [];
-    public List<DxfViewportWindow> Viewports { get; } = [];
-    public Rect Bounds => Viewports.Aggregate(Entities.Aggregate(Rect.Empty, (r, e) => { r.Union(e.Bounds); return r; }),
-        (r, v) => { r.Union(v.Paper); return r; });
-    // The first VIEWPORT of every layout is the sheet's own view, not a window.
-    internal bool SheetViewSeen { get; set; }
-}
-public sealed class DxfDocument
-{
-    /// <summary>Model space. Paper-space records belong to <see cref="Layouts"/>.</summary>
-    public List<DxfEntity> Entities { get; } = [];
-    /// <summary>Paper layouts in tab order.</summary>
-    public List<DxfLayout> Layouts { get; } = [];
-    /// <summary>LAYER table in file order, plus any layer that entities use without a table entry.</summary>
-    public List<DxfLayer> Layers { get; } = [];
-    /// <summary>Distinct (layer index, category) pairs; <see cref="DxfEntity.Group"/> indexes this list.</summary>
-    public List<(int Layer, EntityCategory Category)> Groups { get; } = [];
-    public Dictionary<string, int> Skipped { get; } = [];
-    public string Units { get; set; } = "drawing units (unspecified)";
-    public Dictionary<string,int> RenderingWarnings { get; } = [];
-    public string? UnsupportedWarning => Skipped.Count == 0 && RenderingWarnings.Count == 0 ? null :
-        (Skipped.Count>0 ? $"This drawing is only partially displayed. {Skipped.Values.Sum():N0} unsupported records were skipped.\n\n" : "Some drawing features are displayed approximately.\n\n") +
-        string.Join("\n", Skipped.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => $"{p.Key}: {p.Value:N0}")) +
-        (RenderingWarnings.Count==0?"":"\n\nRendering notes:\n"+string.Join("\n",RenderingWarnings.OrderBy(p=>p.Key).Select(p=>$"{p.Key}: {p.Value:N0}"))) +
-        "\n\nSkipped block inserts may contain additional geometry that is not shown. Measurements apply only to displayed geometry.";
-    public Rect Bounds => Entities.Aggregate(Rect.Empty, (r, e) => { r.Union(e.Bounds); return r; });
-}
-public static class DxfReader
+namespace VibeDxf.Wpf;
+internal static class DxfReader
 {
     private sealed record Pair(int Code, string Value);
     public static DxfDocument Load(string path)
     {
-        using var reader = new StreamReader(path);
+        using var source = File.OpenRead(path);
+        return Load(source);
+    }
+    internal static DxfDocument Load(Stream source, bool leaveOpen=true)
+    {
+        using var reader = new StreamReader(source, System.Text.Encoding.UTF8, true, 1024, leaveOpen);
         var pairs = new List<Pair>();
         string? code;
         while ((code = reader.ReadLine()) != null)
-        {
+        { LoadingContext.Check();
             var value = reader.ReadLine() ?? throw new InvalidDataException("Incomplete DXF group pair.");
             if (!int.TryParse(code.Trim(), out var n)) throw new InvalidDataException("Only ASCII DXF files are supported in this initial viewer.");
             pairs.Add(new Pair(n, n is 1 or 3 ? value : value.Trim()));
         }
-        var doc = new DxfDocument();
+        var doc = new DrawingBuilder();
         for (int j = 0; j + 1 < pairs.Count; j++)
             if (pairs[j].Code == 9 && pairs[j].Value == "$INSUNITS")
                 doc.Units = pairs[j + 1].Value switch { "1" => "inches", "2" => "feet", "4" => "mm", "5" => "cm", "6" => "m", "0" => "drawing units (unitless)", var u => $"drawing units (INSUNITS={u})" };
@@ -69,9 +32,9 @@ public static class DxfReader
         var layoutRecords=new List<Record>();var layerRecords=new List<Record>();
         var entities=new List<Record>();string section="";List<Record>? blockRecords=null;
         for(int i=0;i<pairs.Count;)
-        {
+        { LoadingContext.Check();
             if(pairs[i].Code!=0){i++;continue;}
-            int end=i+1;while(end<pairs.Count&&pairs[end].Code!=0)end++;
+            int end=i+1;while(end<pairs.Count&&pairs[end].Code!=0){if((end&1023)==0)LoadingContext.Check();end++;}
             var record=new Record(pairs[i].Value,pairs.GetRange(i+1,end-i-1));i=end;
             if(record.Kind=="SECTION"){section=record.S(2);continue;}
             if(record.Kind=="ENDSEC"){section="";continue;}
@@ -98,12 +61,12 @@ public static class DxfReader
         var layerHandles=new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
         int? Int(Record r,int code)=>r.Fields.Any(f=>f.Code==code)?(int)r.N(code):null;
         foreach(var r in layerRecords)
-        {
+        { LoadingContext.Check();
             var name=r.S(2);if(name.Length==0||layerIndex.ContainsKey(name))continue;
             var aci=Int(r,62)??7;
             var color=DxfColors.Resolve(Math.Abs(aci)==0?7:Math.Abs(aci),Int(r,420),DxfColors.White,null);
             layerIndex[name]=doc.Layers.Count;layerHandles[r.S(5)]=doc.Layers.Count;
-            doc.Layers.Add(new DxfLayer(name,color,aci>=0,((int)r.N(70)&1)!=0,r.S(290,"1")!="0",r.S(6,"Continuous")));
+            doc.Layers.Add(new DxfLayer(name,color,aci>=0,((int)r.N(70)&1)!=0,r.S(290,"1")!="0",r.S(6,"Continuous")){ColorIndex=aci,TrueColor=Int(r,420)});
         }
         int LayerOf(string name)
         {
@@ -115,24 +78,24 @@ public static class DxfReader
         uint ColorOf(Record r,string layer,uint? blockColor)=>DxfColors.Resolve(Int(r,62),Int(r,420),doc.Layers[LayerOf(layer)].Color,blockColor);
         // LAYOUT objects name the sheet tabs and own a *Paper_Space block. The active layout's content is
         // stored in ENTITIES with group 67=1; every other layout's content is its block's records.
-        var layouts=new List<(DxfLayout Layout,int Tab,string Block)>();
+        var layouts=new List<(LayoutBuilder Layout,int Tab,string Block)>();
         foreach(var record in layoutRecords)
         {
             var own=record.Fields.SkipWhile(f=>!(f.Code==100&&f.Value=="AcDbLayout")).ToList();
             var block=blockNames.GetValueOrDefault(own.FirstOrDefault(f=>f.Code==330)?.Value??"","");
             if(block.Length==0||block.Equals("*Model_Space",StringComparison.OrdinalIgnoreCase))continue;
             var name=own.FirstOrDefault(f=>f.Code==1)?.Value;
-            layouts.Add((new DxfLayout(string.IsNullOrWhiteSpace(name)?block:name),(int)new Record("",own).N(71),block));
+            layouts.Add((new LayoutBuilder(string.IsNullOrWhiteSpace(name)?block:name),(int)new Record("",own).N(71),block));
         }
         layouts.Sort((a,b)=>a.Tab.CompareTo(b.Tab));
         var active=layouts.FirstOrDefault(l=>l.Block.Equals("*Paper_Space",StringComparison.OrdinalIgnoreCase)).Layout;
         // Files without LAYOUT objects (R12) still mark paper space with group 67.
-        if(active==null&&entities.Any(r=>r.N(67)!=0)){active=new DxfLayout("Layout");layouts.Insert(0,(active,0,"*Paper_Space"));}
+        if(active==null&&entities.Any(r=>r.N(67)!=0)){active=new LayoutBuilder("Layout");layouts.Insert(0,(active,0,"*Paper_Space"));}
         doc.Layouts.AddRange(layouts.Select(l=>l.Layout));
         // Current output: null is model space. Block children follow their insert.
-        DxfLayout? target=null;bool entitiesPass=true;
+        LayoutBuilder? target=null;bool entitiesPass=true;
         List<DxfEntity> Output()=>target?.Entities??doc.Entities;
-        void ReadViewport(Record r,DxfLayout layout)
+        void ReadViewport(Record r,LayoutBuilder layout)
         {
             var flags=(long)r.N(90);
             // The sheet view is ID 1 in the active layout. Inactive layouts store ID and status 0 for every
@@ -149,10 +112,12 @@ public static class DxfReader
             var paper=new Rect(r.N(10)-width/2,r.N(20)-height/2,width,height);
             // Group 331 lists layers frozen in this viewport only, by LAYER table handle.
             int[] frozen=[.. r.Fields.Where(f=>f.Code==331).Select(f=>layerHandles.TryGetValue(f.Value,out var i)?i:-1).Where(i=>i>=0).Distinct()];
-            layout.Viewports.Add(new DxfViewportWindow(r.S(5),paper,transform){FrozenLayers=frozen});
+
             Point[] corners=[paper.BottomLeft,paper.BottomRight,paper.TopRight,paper.TopLeft];
-            layout.Entities.Add(new DxfEntity("VIEWPORT",r.S(8,"0"),r.S(5),DxfPrimitives.Outline([corners]))
-                {Category=EntityCategory.ViewportFrame,Color=ColorOf(r,r.S(8,"0"),null)});
+            var frame=new DxfEntity("VIEWPORT",r.S(8,"0"),r.S(5),DxfPrimitives.Outline([corners]))
+                {Category=EntityCategory.ViewportFrame,Color=ColorOf(r,r.S(8,"0"),null),ColorSource=new(Int(r,62),Int(r,420))};
+            layout.Entities.Add(frame);
+            layout.Viewports.Add(new DxfViewportWindow(r.S(5),paper,transform){FrozenLayers=frozen,FrameEntity=frame});
             if((flags&65536)!=0&&r.Fields.Any(f=>f.Code==340))Note("VIEWPORT non-rectangular clipping is shown as its rectangle");
         }
         // Shared by INSERT and dimension blocks; a successful lookup pushes the name onto the cycle stack.
@@ -217,17 +182,19 @@ public static class DxfReader
             List<(Point P,double Bulge)>? vertices=null;
             string polyLayer="0",polyHandle="";bool polyClosed=false;uint polyColor=DxfColors.White;
             uint color=DxfColors.White;
-            void Add(DxfEntity entity,uint? colorOverride=null)
+            DxfColorSource colorSource = new(), polyColorSource = new();
+            void Add(DxfEntity entity,uint? colorOverride=null,DxfColorSource? sourceOverride=null)
             {
                 if(doc.Entities.Count+doc.Layouts.Sum(l=>l.Entities.Count)>=1000000)throw new InvalidDataException("Expanded drawing exceeds one million entities.");
                 var layer=entity.Layer=="0"?inheritedLayer:entity.Layer;
-                try { Output().Add(DxfPrimitives.Transform(entity,matrix,layer,path+entity.Handle,category,colorOverride??color)); }
+                try { entity.ColorSource=sourceOverride??colorSource; Output().Add(DxfPrimitives.Transform(entity,matrix,layer,path+entity.Handle,category,colorOverride??color)); }
                 catch(InvalidDataException){Skip(entity.Kind+" (transformed geometry limit)");}
             }
             foreach(var record in records)
-            {
+        { LoadingContext.Check();
                 // Polyline VERTEX/SEQEND records continue the space of their POLYLINE header.
                 if(entitiesPass&&stack.Count==0&&record.Kind is not ("VERTEX" or "SEQEND"))target=record.N(67)!=0?active:null;
+                colorSource=new(Int(record,62),Int(record,420));
                 var p=(Value:record.Kind,Code:0);var fields=record.Fields;
                 string S(int c,string fallback="")=>record.S(c,fallback);
                 double N(int c,double fallback=0)=>record.N(c,fallback);
@@ -414,13 +381,13 @@ public static class DxfReader
                         curves = Polyline(vs, ((int)N(70) & 1) != 0); break;
                     case "POLYLINE":
                         if (((int)N(70) & (8 | 16 | 64)) != 0) { doc.Skipped["3D POLYLINE"] = doc.Skipped.GetValueOrDefault("3D POLYLINE") + 1; vertices = null; break; }
-                        vertices = []; polyLayer = S(8, "0"); polyHandle = S(5); polyColor = color; polyClosed = ((int)N(70) & 1) != 0; break;
+                        vertices = []; polyLayer = S(8, "0"); polyHandle = S(5); polyColor = color; polyColorSource=colorSource; polyClosed = ((int)N(70) & 1) != 0; break;
                     case "VERTEX": vertices?.Add((P(10, 20), N(42))); break;
                     case "SEQEND":
                         if (vertices != null)
                         {
                             var cs = Polyline(vertices, polyClosed);
-                            if (cs.Count > 0) Add(new DxfEntity("POLYLINE", polyLayer, polyHandle, cs), polyColor);
+                            if (cs.Count > 0) Add(new DxfEntity("POLYLINE", polyLayer, polyHandle, cs), polyColor, polyColorSource);
                             vertices = null;
                         }
                         break;
@@ -454,9 +421,9 @@ public static class DxfReader
             entity.Group=group;
         }
         // Fills are independent and Triangulate is pure; the renderer still concatenates them in entity order.
-        Parallel.ForEach(all.Where(e=>e.FillContours.Count>0),e=>e.FillTriangles=DxfPrimitives.Triangulate(e.FillContours));
+        Parallel.ForEach(all.Where(e=>e.FillContours.Count>0),new ParallelOptions{CancellationToken=LoadingContext.Token},e=>e.FillTriangles=Array.AsReadOnly(DxfPrimitives.Triangulate(e.FillContours).ToArray()));
         if(all.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text, attributes, dimensions, leaders, multileaders and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
-        return doc;
+        return doc.Freeze();
     }
     private sealed record Record(string Kind,List<Pair> Fields)
     {
@@ -487,5 +454,3 @@ public static class DxfReader
         return result;
     }
 }
-
-

@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using Vortice.D3DCompiler;
 using D2D = Vortice.Direct2D1;
@@ -9,7 +9,7 @@ using Vortice.DXGI;
 using Vortice.Mathematics;
 using AlphaMode = Vortice.DCommon.AlphaMode;
 using PixelFormat = Vortice.DCommon.PixelFormat;
-namespace VibeDxf;
+namespace VibeDxf.Wpf;
 
 /// <summary>
 /// Draws the whole drawing with Direct3D 11 from GPU buffers uploaded once per document;
@@ -17,7 +17,7 @@ namespace VibeDxf;
 /// Model and paper (layout) geometry share the buffers as separate ranges; layout viewports
 /// re-draw the model range through their own transform, clipped with a scissor rectangle.
 /// </summary>
-public sealed class DrawingRenderer : IDisposable
+internal sealed class DrawingRenderer : IDisposable
 {
     private const string ShaderSource = """
         cbuffer Camera : register(b0) { float4 row0; float4 row1; float4 mono; float segments; float3 pad; float4 style; };
@@ -108,9 +108,13 @@ public sealed class DrawingRenderer : IDisposable
     public IDWriteFactory Write => dwrite;
     // Allows offline rendering checks to read the completed GPU frame before flip-discard presentation.
     internal Action? FrameRendered { get; set; }
+    // Regression instrumentation for candidate-resource rollback; never part of the host API.
+    internal Action? BeforeDrawingCommit { get; set; }
 
     public DrawingRenderer(IntPtr hwnd, int width, int height)
     {
+        try
+        {
         FeatureLevel[] levels = [FeatureLevel.Level_11_0, FeatureLevel.Level_10_1, FeatureLevel.Level_10_0];
         if (D3D11.D3D11CreateDevice((IDXGIAdapter?)null, DriverType.Hardware, DeviceCreationFlags.BgraSupport, levels, out device!, out context!).Failure)
             D3D11.D3D11CreateDevice((IDXGIAdapter?)null, DriverType.Warp, DeviceCreationFlags.BgraSupport, levels, out device!, out context!).CheckError();
@@ -162,6 +166,8 @@ public sealed class DrawingRenderer : IDisposable
         d2d = d2dDevice.CreateDeviceContext(D2D.DeviceContextOptions.None);
         dwrite = DWrite.DWriteCreateFactory<IDWriteFactory>();
         CreateTargets();
+        }
+        catch { Dispose(); throw; }
     }
 
     public void SetDrawing(IEnumerable<Curve> curves, System.Windows.Point origin) => SetDrawing([new DxfEntity("LINE","0","",curves.ToList())],origin);
@@ -173,9 +179,10 @@ public sealed class DrawingRenderer : IDisposable
     /// <paramref name="groupLayers"/> maps <see cref="DxfEntity.Group"/> to a layer index for per-viewport freezes.
     /// </summary>
     public void SetDrawing(IEnumerable<DxfEntity> modelEntities, System.Windows.Point origin,
-        IReadOnlyList<(IEnumerable<DxfEntity> Entities, System.Windows.Point Origin)> layouts, IReadOnlyList<int>? groupLayers = null)
+        IReadOnlyList<(IEnumerable<DxfEntity> Entities, System.Windows.Point Origin)> layouts, IReadOnlyList<int>? groupLayers = null,
+        CancellationToken cancellationToken = default)
     {
-        Origin = origin;
+        cancellationToken.ThrowIfCancellationRequested();
         var lines = new List<Vertex>();
         var arcs = new List<ArcInstance>();
         var rays = new List<RayInstance>();
@@ -189,7 +196,8 @@ public sealed class DrawingRenderer : IDisposable
             Vector2 F(System.Windows.Point q) => new((float)(q.X - o.X), (float)(q.Y - o.Y));
             foreach (var e in entities)
             {
-                uint color = e.Color, group = (uint)e.Group; maxGroup = Math.Max(maxGroup, e.Group);
+                cancellationToken.ThrowIfCancellationRequested();
+                uint color = DxfDisplayColors.ForDarkBackground(e.Color), group = (uint)e.Group; maxGroup = Math.Max(maxGroup, e.Group);
                 Vertex V(System.Windows.Point q) => new(F(q), color, group);
                 if (e.Kind == "POINT") { points.AddRange(Enumerable.Repeat(V(e.Curves[0].Start), 4)); continue; }
                 foreach (var c in e.RenderCurves ?? e.Curves)
@@ -210,21 +218,39 @@ public sealed class DrawingRenderer : IDisposable
             return new Part(o, new(l, lines.Count - l), new(f, triangles.Count - f), new(p, points.Count - p), new(d, dots.Count - d),
                 new(r, rays.Count - r), [.. bucketList]);
         }
-        model = Collect(modelEntities.ToArray(), origin);
-        papers = [.. layouts.Select(l => Collect(l.Entities.ToArray(), l.Origin))];
+        var nextModel = Collect(modelEntities.ToArray(), origin);
+        var nextPapers = layouts.Select(l => Collect(l.Entities.ToArray(), l.Origin)).ToArray();
         ID3D11Buffer? Upload<T>(List<T> data) where T : unmanaged =>
             data.Count == 0 ? null : device.CreateBuffer(CollectionsMarshal.AsSpan(data), BindFlags.VertexBuffer, ResourceUsage.Immutable);
+        var nextBuffers = new ID3D11Buffer?[6];
+        ID3D11Buffer? nextGroups = null;
+        ID3D11ShaderResourceView? nextGroupView = null;
+        var nextGroupLayers = (groupLayers ?? Array.Empty<int>()).ToArray();
+        var count = Math.Max(maxGroup + 1, nextGroupLayers.Length);
+        try
+        {
+            nextBuffers[0] = Upload(lines); nextBuffers[1] = Upload(arcs); nextBuffers[2] = Upload(rays);
+            nextBuffers[3] = Upload(dots); nextBuffers[4] = Upload(triangles); nextBuffers[5] = Upload(points);
+            nextGroups = device.CreateBuffer(new BufferDescription((uint)(count * sizeof(uint)), BindFlags.ShaderResource, ResourceUsage.Dynamic, CpuAccessFlags.Write));
+            nextGroupView = device.CreateShaderResourceView(nextGroups, new ShaderResourceViewDescription(nextGroups, Format.R32_UInt, 0, (uint)count));
+            BeforeDrawingCommit?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        catch
+        {
+            foreach (var buffer in nextBuffers) buffer?.Dispose();
+            nextGroupView?.Dispose(); nextGroups?.Dispose(); throw;
+        }
         foreach (var old in new[] { lineBuffer, arcBuffer, rayBuffer, dotBuffer, fillBuffer, pointBuffer }) old?.Dispose();
-        lineBuffer = Upload(lines); arcBuffer = Upload(arcs); rayBuffer = Upload(rays);
-        dotBuffer = Upload(dots); fillBuffer = Upload(triangles); pointBuffer = Upload(points);
+        lineBuffer = nextBuffers[0]; arcBuffer = nextBuffers[1]; rayBuffer = nextBuffers[2];
+        dotBuffer = nextBuffers[3]; fillBuffer = nextBuffers[4]; pointBuffer = nextBuffers[5];
+        Origin = origin; model = nextModel; papers = nextPapers;
         lineVertexCount = model.Lines.Count; rayInstanceCount = model.Rays.Count; dotVertexCount = model.Dots.Count;
         fillVertexCount = model.Fills.Count; pointVertexCount = model.Points.Count; buckets = model.Buckets;
         // Visibility table: every group starts visible until the viewer applies its layer and category state.
-        this.groupLayers = [.. groupLayers ?? []];
-        var count = Math.Max(maxGroup + 1, this.groupLayers.Length);
+        this.groupLayers = nextGroupLayers;
         groupView?.Dispose(); groupBuffer?.Dispose();
-        groupBuffer = device.CreateBuffer(new BufferDescription((uint)(count * sizeof(uint)), BindFlags.ShaderResource, ResourceUsage.Dynamic, CpuAccessFlags.Write));
-        groupView = device.CreateShaderResourceView(groupBuffer, new ShaderResourceViewDescription(groupBuffer, Format.R32_UInt, 0, (uint)count));
+        groupBuffer = nextGroups; groupView = nextGroupView;
         groupFlags = Enumerable.Repeat(GroupVisible, count).ToArray();
         WriteGroups(groupFlags);
     }
@@ -302,10 +328,10 @@ public sealed class DrawingRenderer : IDisposable
                     if (right <= left || bottom <= top) continue;
                     context.RSSetScissorRect(new Vortice.RawRect(left, top, right, bottom));
                     // Layers frozen in this viewport only: hide their groups for this pass.
-                    if (viewport.FrozenLayers.Length > 0)
+                    if (viewport.FrozenLayers.Count > 0)
                         WriteGroups([.. groupFlags.Select((f, g) => g < groupLayers.Length && viewport.FrozenLayers.Contains(groupLayers[g]) ? f & ~GroupVisible : f)]);
                     Draw(model, viewport.ModelToPaper * camera, dipScale, lineColor, 1, monochrome);
-                    if (viewport.FrozenLayers.Length > 0) WriteGroups(groupFlags);
+                    if (viewport.FrozenLayers.Count > 0) WriteGroups(groupFlags);
                 }
                 context.RSSetState(rasterizer);
                 Draw(paper, camera, dipScale, lineColor, 1, monochrome);
@@ -402,7 +428,7 @@ public sealed class DrawingRenderer : IDisposable
 
     public void Dispose()
     {
-        d2d.Target = null;
+        if (d2d != null) d2d.Target = null;
         foreach (IDisposable? d in new IDisposable?[] { groupView, groupBuffer, d2dTarget, renderTarget, lineBuffer, arcBuffer, fillBuffer, pointBuffer, dotBuffer, rayBuffer, pointShader, rayShader, dwrite, d2d, d2dFactory,
             blend, rasterizer, scissorRasterizer, constantBuffer, rayLayout, arcLayout, lineLayout, pixelShader, arcShader, lineShader, swapChain, context, device })
             d?.Dispose();

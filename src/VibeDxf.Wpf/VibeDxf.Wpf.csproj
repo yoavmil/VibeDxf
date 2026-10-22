@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup>
+  <TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF>
+  <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  <IsPackable>true</IsPackable><Version>0.2.0-preview.1</Version>
+  <PackageId>VibeDxf.Wpf</PackageId><Authors>Yoav Miller and contributors</Authors>
+  <Description>Embeddable Windows/WPF DXF viewer with prepared text geometry, document traversal, layer controls and double-precision distance measurement.</Description>
+  <PackageTags>DXF;CAD;WPF;viewer;geometry;measurement</PackageTags>
+  <PackageProjectUrl>https://github.com/yoavmil/VibeDxf</PackageProjectUrl>
+  <RepositoryUrl>https://github.com/yoavmil/VibeDxf</RepositoryUrl><RepositoryType>git</RepositoryType>
+  <PackageLicenseExpression>MIT</PackageLicenseExpression><PackageReadmeFile>README.md</PackageReadmeFile>
+  <Copyright>Copyright (c) 2026 Yoav Miller and contributors</Copyright>
+  <PackageReleaseNotes>First preview of the single Windows/WPF library. Includes prepared TEXT/MTEXT geometry, source-based entity traversal, measurements, layout and layer/category controls. Requires Windows and .NET 10 Desktop Runtime. Per-entity visibility, document editing and DXF writing are not included.</PackageReleaseNotes>
+  <GenerateDocumentationFile>true</GenerateDocumentationFile>
+ </PropertyGroup>
+ <ItemGroup>
+  <None Update="README.md" Pack="true" PackagePath="/"/>
+  <None Include="../../LICENSE" Pack="true" PackagePath="/"/>
+  <None Include="../../THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="/"/>
+ </ItemGroup>
+ <ItemGroup><PackageReference Include="Vortice.Direct3D11" Version="3.8.3"/><PackageReference Include="Vortice.Direct2D1" Version="3.8.3"/><PackageReference Include="Vortice.D3DCompiler" Version="3.8.3"/></ItemGroup>
+</Project>

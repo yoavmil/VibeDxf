@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
-using VibeDxf;
+using VibeDxf.Wpf;
 
 static class ViewportChecks
 {
@@ -16,7 +16,7 @@ static class ViewportChecks
   var a=new DxfEntity("LINE","0","1",[Curve.Line(new Point(0,0),new Point(10,0))]);
   var b=new DxfEntity("LINE","0","2",[Curve.Line(new Point(0,10),new Point(10,10))]);
   var arc=new DxfEntity("CIRCLE","0","3",[Curve.Arc(new Point(5,5),2,0,Math.Tau)]);
-  var doc=new DxfDocument();doc.Entities.AddRange([a,b,arc]);
+  var doc=new DrawingBuilder();doc.Entities.AddRange([a,b,arc]);
   // A real off-screen window, so the swap chain host creates its HWND and the Direct3D renderer.
   var view=new DxfViewport();
   var window=new Window{Content=view,Width=900,Height=600,WindowStyle=WindowStyle.None,ShowInTaskbar=false,ShowActivated=false,
@@ -96,7 +96,7 @@ static class ViewportChecks
   Call(view,"RenderNow");
   Verify(view.Selected.Count==1 && view.Selected[0].Entity.Kind=="ARC",
    "reproduction DXF arc can be selected and highlighted");
-  var circles=new DxfDocument();
+  var circles=new DrawingBuilder();
   circles.Entities.AddRange([new DxfEntity("CIRCLE","0","A",[Curve.Arc(new Point(0,0),2,0,Math.Tau)]),
    new DxfEntity("CIRCLE","0","B",[Curve.Arc(new Point(10,0),3,0,Math.Tau)])]);
   view.SetDocument(circles);Pump();
@@ -114,7 +114,7 @@ static class ViewportChecks
   var splineCurves=SplineGeometry.Flatten(3,[new(0,0),new(0,2),new(2,-2),new(2,0)],[0,0,0,0,1,1,1,1]);
   var spline=new DxfEntity("SPLINE","0","S",splineCurves);
   var reference=new DxfEntity("LINE","0","R",[Curve.Line(new(-1,3),new(3,3))]);
-  var splineDoc=new DxfDocument();splineDoc.Entities.AddRange([spline,reference]);
+  var splineDoc=new DrawingBuilder();splineDoc.Entities.AddRange([spline,reference]);
   view.SetDocument(splineDoc);Pump();
   var frame=VisualReport.Capture(renderer!,"Unselected cubic spline",()=>Call(view,"RenderNow"));
   var probe=new Point(.3125,.5625); // Cubic at parameter .25.

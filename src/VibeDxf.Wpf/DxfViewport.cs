@@ -15,13 +15,13 @@ using DashStyle = Vortice.Direct2D1.DashStyle;
 using FontStretch = Vortice.DirectWrite.FontStretch;
 using ArcSegment = Vortice.Direct2D1.ArcSegment;
 using SweepDirection = Vortice.Direct2D1.SweepDirection;
-namespace VibeDxf;
+namespace VibeDxf.Wpf;
 
 /// <summary>
 /// Pan, zoom, midpoint snapping and two-target measurement over a <see cref="DrawingRenderer"/>.
 /// The swap chain lives in a child HWND that is transparent to the mouse, so input arrives on this WPF element.
 /// </summary>
-public sealed class DxfViewport : System.Windows.Controls.Border
+internal sealed class DxfViewport : System.Windows.Controls.Border
 {
     private static readonly Color4 BackColor = new(17 / 255f, 24 / 255f, 32 / 255f, 1);
     private static readonly Color4 LineColor = new(211 / 255f, 211 / 255f, 211 / 255f, 1);
@@ -91,14 +91,16 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         Cursor = Cursors.Cross;
         SizeChanged += (_, e) => { if (e.PreviousSize.Width == 0 && Document != null) Fit(); else Invalidate(); };
     }
-    public void SetDocument(DxfDocument doc)
+    public void SetDocument(DxfDocument doc, Action? commit = null, CancellationToken cancellationToken = default)
     {
+        UploadGeometry(doc, cancellationToken);
         Document = doc;
         activeLayout = doc.Entities.Count == 0 && doc.Layouts.Count > 0 ? 0 : -1;
         // Layers start as the file saved them: off or frozen layers are hidden.
         layerVisible = [.. doc.Layers.Select(l => l.VisibleInFile)];
         hiddenCategories.Clear();
-        Upload();
+        commit?.Invoke();
+        host.Renderer?.SetGroupFlags(GroupFlags());
         ApplyLayout();
         VisibilityChanged?.Invoke();
     }
@@ -110,10 +112,15 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     }
     private void Upload()
     {
-        if (Document is not { } doc || host.Renderer is not { } renderer) return;
+        if (Document is not { } doc) return;
+        UploadGeometry(doc);
+        host.Renderer?.SetGroupFlags(GroupFlags());
+    }
+    private void UploadGeometry(DxfDocument doc, CancellationToken cancellationToken = default)
+    {
+        if (host.Renderer is not { } renderer) return;
         renderer.SetDrawing(doc.Entities, Center(doc.Bounds),
-            [.. doc.Layouts.Select(l => ((IEnumerable<DxfEntity>)l.Entities, Center(l.Bounds)))], [.. doc.Groups.Select(g => g.Layer)]);
-        renderer.SetGroupFlags(GroupFlags());
+            [.. doc.Layouts.Select(l => ((IEnumerable<DxfEntity>)l.Entities, Center(l.Bounds)))], [.. doc.Groups.Select(g => g.Layer)], cancellationToken);
     }
 
     // ---- Layer and category visibility. Changes rewrite only the renderer's small group table.
@@ -130,7 +137,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     }
     public bool IsLayerVisible(int layer) => layer < 0 || layer >= layerVisible.Length || layerVisible[layer];
     public bool IsCategoryVisible(EntityCategory category) => !hiddenCategories.Contains(category);
-    public bool IsVisible(DxfEntity entity) => Document is not { } doc || entity.Group >= doc.Groups.Count ||
+    public bool IsEntityVisible(DxfEntity entity) => Document is not { } doc || entity.Group >= doc.Groups.Count ||
         IsLayerVisible(doc.Groups[entity.Group].Layer) && IsCategoryVisible(doc.Groups[entity.Group].Category);
     public void SetLayerVisible(int layer, bool visible)
     {
@@ -168,8 +175,8 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     private void RebuildIndexes()
     {
         if (Document is not { } doc) return;
-        modelIndex = new MidpointIndex(doc.Entities.Where(IsVisible));
-        midpointIndex = Layout == null ? modelIndex : new MidpointIndex(Layout.Entities.Where(IsVisible));
+        modelIndex = new MidpointIndex(doc.Entities.Where(IsEntityVisible));
+        midpointIndex = Layout == null ? modelIndex : new MidpointIndex(Layout.Entities.Where(IsEntityVisible));
     }
     private uint[] GroupFlags() => Document is not { } doc ? [] : [.. doc.Groups.Select(g =>
         (IsLayerVisible(g.Layer) && IsCategoryVisible(g.Category) ? DrawingRenderer.GroupVisible : 0) |
@@ -180,7 +187,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         host.Renderer?.SetGroupFlags(GroupFlags());
         // Hidden items can't be picked, snapped or measured.
         RebuildIndexes();
-        selected.RemoveAll(t => !IsVisible(t.Entity));
+        selected.RemoveAll(t => !IsEntityVisible(t.Entity));
         hoveredMidpoint = null;
         UpdateMeasurement();
         VisibilityChanged?.Invoke();
@@ -194,7 +201,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     public void Fit()
     {
         if (Document == null || ActualWidth < 1 || ActualHeight < 1) return;
-        var b = bounds;
+        var b = bounds.IsEmpty ? new Rect(-.5, -.5, 1, 1) : bounds;
         scale = Math.Clamp(Math.Min(Math.Max(1, ActualWidth - 70) / Math.Max(b.Width, 1e-6),
             Math.Max(1, ActualHeight - 70) / Math.Max(b.Height, 1e-6)), 1e-9, 1e9);
         offset = new System.Windows.Vector(ActualWidth / 2 - (b.Left + b.Width / 2) * scale,
@@ -208,6 +215,21 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     }
     private Point World(Point p) => new((p.X - offset.X) / scale, (offset.Y - p.Y) / scale);
     private Point Screen(Point p) => new(p.X * scale + offset.X, -p.Y * scale + offset.Y);
+    internal Point ToWorld(Point p) => World(p);
+    internal Point ToScreen(Point p) => Screen(p);
+    internal (double Scale, System.Windows.Vector Offset) Camera
+    {
+        get => (scale, offset);
+        set { scale = value.Scale; offset = value.Offset; hoveredMidpoint = null; Invalidate(); }
+    }
+    internal void ClearDocument()
+    {
+        host.Renderer?.SetDrawing(Array.Empty<DxfEntity>(), default);
+        Document = null; activeLayout = -1; bounds = Rect.Empty;
+        midpointIndex = null; modelIndex = null; layerVisible = []; hiddenCategories.Clear();
+        ClearSelection(); LayoutChanged?.Invoke(); VisibilityChanged?.Invoke();
+    }
+    internal void ReleaseResources() => host.ReleaseResources();
     private Vector2 ScreenV(Point p) { var s = Screen(p); return new((float)s.X, (float)s.Y); }
     private Vortice.RawRectF ScreenRect(Rect world)
     {
@@ -224,20 +246,23 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         renderQueued = true;
         Dispatcher.BeginInvoke(DispatcherPriority.Render, RenderNow);
     }
+    internal event Action<Exception>? RenderingFailed;
+    internal void ReportRenderingFailure(Exception ex) => RenderingFailed?.Invoke(ex);
     private void RenderNow()
     {
         renderQueued = false;
         if (host.Renderer is not { } renderer) return;
         var (w, h) = host.PixelSize;
-        renderer.Render(w, h, VisualTreeHelper.GetDpi(this).DpiScaleX, scale, offset, BackColor, LineColor, DrawOverlay,
-            activeLayout, Layout?.Viewports, monochrome);
+        try { renderer.Render(w, h, VisualTreeHelper.GetDpi(this).DpiScaleX, scale, offset, BackColor, LineColor, DrawOverlay,
+            activeLayout, Layout?.Viewports, monochrome); }
+        catch (Exception ex) { ReportRenderingFailure(ex); }
     }
 
     private void DrawOverlay(ID2D1DeviceContext dc)
     {
         if (Document == null)
         {
-            DrawText(dc, "Open or drop a DXF drawing\n\nCtrl+O  ·  Wheel to zoom  ·  Middle/right drag to pan", 20, Hint,
+            DrawText(dc, "Wheel to zoom  ·  Middle/right drag to pan", 20, Hint,
                 null, w => new(Math.Max(20, (ActualWidth - w) / 2), Math.Max(20, ActualHeight / 2 - 50)));
             return;
         }
@@ -408,6 +433,10 @@ public sealed class DxfViewport : System.Windows.Controls.Border
     {
         if (Document == null) return;
         var target = Pick(point, snapMidpoint);
+        SelectTarget(target);
+    }
+    internal void SelectTarget(MeasurementTarget? target)
+    {
         if (target == null) { ClearSelection(); return; }
         if (!selected.Remove(target))
         {
@@ -437,7 +466,7 @@ public sealed class DxfViewport : System.Windows.Controls.Border
         MeasurementTarget? target = null; double nearest = tolerance;
         foreach (var entity in entities)
         {
-            if (entity.IsAnnotation || !IsVisible(entity)) continue;
+            if (entity.IsAnnotation || !IsEntityVisible(entity)) continue;
             if (viewport != null && viewport.FrozenLayers.Contains(LayerIndex(entity))) continue;
             var b = entity.Bounds; b.Inflate(nearest, nearest);
             // Ray and xline bounds hold only their base point, so they skip the box prefilter.
@@ -487,6 +516,8 @@ public sealed class DxfViewport : System.Windows.Controls.Border
 /// </summary>
 internal sealed class SwapChainHost(DxfViewport owner) : HwndHost
 {
+    private bool released;
+    internal void ReleaseResources() { released = true; Renderer?.Dispose(); Renderer = null; }
     private const int WS_CHILD = 0x40000000, WS_VISIBLE = 0x10000000, WS_CLIPSIBLINGS = 0x04000000;
     private const int WM_NCHITTEST = 0x0084, WM_ERASEBKGND = 0x0014, WM_PAINT = 0x000F, WM_SIZE = 0x0005, HTTRANSPARENT = -1;
     private IntPtr hwnd;
@@ -506,9 +537,10 @@ internal sealed class SwapChainHost(DxfViewport owner) : HwndHost
     }
     private void CreateRenderer()
     {
+        if (released) return;
         var (w, h) = PixelSize;
-        Renderer = new DrawingRenderer(hwnd, w, h);
-        owner.RendererCreated();
+        try { Renderer = new DrawingRenderer(hwnd, w, h); owner.RendererCreated(); }
+        catch (Exception ex) { Renderer?.Dispose(); Renderer = null; owner.ReportRenderingFailure(ex); }
     }
     protected override void DestroyWindowCore(HandleRef window)
     {

@@ -1,13 +1,17 @@
-namespace VibeDxf;
+namespace VibeDxf.Wpf;
 
 /// <summary>
 /// DXF color resolution. Colors are packed RGBA with R in the low byte (the GPU's R8G8B8A8 layout).
 /// </summary>
 public static class DxfColors
 {
+    /// <summary>Opaque white packed as RGBA with red in the low byte.</summary>
     public const uint White = 0xFFFFFFFF;
+    /// <summary>Packs RGB bytes into opaque RGBA with red in the low byte.</summary>
     public static uint Pack(byte r, byte g, byte b) => r | (uint)g << 8 | (uint)b << 16 | 0xFF000000;
+    /// <summary>Extracts RGB bytes from the packed RGBA value.</summary>
     public static (byte R, byte G, byte B) Unpack(uint color) => ((byte)color, (byte)(color >> 8), (byte)(color >> 16));
+    /// <summary>Formats source RGB as a hexadecimal #RRGGBB string.</summary>
     public static string Hex(uint color) { var (r, g, b) = Unpack(color); return $"#{r:X2}{g:X2}{b:X2}"; }
 
     // AutoCAD Color Index. 1–9 are named colors; 10–249 are 24 hues in 15° steps, each with five values
@@ -44,12 +48,12 @@ public static class DxfColors
     /// </summary>
     public static uint Resolve(int? aci, int? trueColor, uint layerColor, uint? blockColor)
     {
-        if (trueColor is { } t) return ForDarkBackground(FromTrueColor(t));
+        if (trueColor is { } t) return FromTrueColor(t);
         return aci switch
         {
             null or 256 => layerColor,
             0 => blockColor ?? White,
-            var a => ForDarkBackground(FromAci(a.Value)),
+            var a => FromAci(a.Value),
         };
     }
 
@@ -67,4 +71,11 @@ public static class DxfColors
         byte Lift(byte c) => (byte)Math.Round(c + (255 - c) * t);
         return Pack(Lift(r), Lift(g), Lift(b));
     }
+}
+
+/// <summary>Default dark-background policy; source document colors are not modified.</summary>
+public static class DxfDisplayColors
+{
+    /// <summary>Applies the default dark-background luminance policy without modifying source colors.</summary>
+    public static uint ForDarkBackground(uint color) => DxfColors.ForDarkBackground(color);
 }

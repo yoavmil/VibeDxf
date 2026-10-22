@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
-using VibeDxf;
+using VibeDxf.Wpf;
 using Xunit;
 
 [Collection("Visual checks")]
@@ -180,7 +180,7 @@ public sealed class MTextChecks
             Assert.Equal("Visible",Assert.Single(doc.Entities).Text);
             Assert.Equal(1,doc.Skipped["MTEXT (columns)"]);Assert.Equal(1,doc.Skipped["MTEXT (vertical flow)"]);
             Assert.Contains("paragraph",doc.UnsupportedWarning!);Assert.Contains("background",doc.UnsupportedWarning!);
-            var notesOnly=new DxfDocument();notesOnly.RenderingWarnings.Add("MTEXT paragraph formatting is simplified",1);
+            var notesOnly=new DrawingBuilder();notesOnly.RenderingWarnings.Add("MTEXT paragraph formatting is simplified",1);
             Assert.NotNull(notesOnly.UnsupportedWarning);Assert.DoesNotContain("records were skipped",notesOnly.UnsupportedWarning!);
         }
         finally{File.Delete(path);}
@@ -211,7 +211,7 @@ public sealed class MTextChecks
             frame=VisualReport.Capture(renderer,"Selected MTEXT outlines",()=>Call(view,"RenderNow"));
             Assert.True(Pixel(entity.Curves[0].At(.5),(r,g,b)=>r>200&&g>90&&b<70));
             var p=new Point(entity.Bounds.Right+3,entity.Bounds.Top);
-            var point=new DxfEntity("POINT","0","P",[Curve.Line(p,p)]);doc.Entities.Add(point);view.SetDocument(doc);Pump();
+            var point=new DxfEntity("POINT","0","P",[Curve.Line(p,p)]);var extended=new DrawingBuilder();extended.Entities.AddRange(doc.Entities);extended.Entities.Add(point);view.SetDocument(extended);Pump();
             Call(view,"SelectAt",probe,false);Call(view,"SelectAt",p,false);
             TestSupport.Near(entity.Distance(point).Distance,view.Measurement!.Value.Distance);
             Assert.True(view.Measurement.Value.Distance>=3);

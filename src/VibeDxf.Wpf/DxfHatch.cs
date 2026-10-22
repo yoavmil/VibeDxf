@@ -2,7 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 
-namespace VibeDxf;
+namespace VibeDxf.Wpf;
 
 // All boundary flattening and pattern clipping happens once at load time.
 internal static class DxfHatch
@@ -31,7 +31,7 @@ internal static class DxfHatch
     {
         var pts=new List<Point>();
         foreach(var c in curves)
-        {
+        { LoadingContext.Check();
             int count=1;
             if(!c.IsLine)
             {
@@ -62,7 +62,7 @@ internal static class DxfHatch
         if(count==0)throw new InvalidDataException("Empty hatch.");
         var paths=new List<(List<Curve> Curves,Point[] Polygon)>();bool approximate=false;
         for(int path=0;path<count;path++)
-        {
+        { LoadingContext.Check();
             var flags=cursor.Count(92);var curves=new List<Curve>();
             if((flags&2)!=0)
             {
@@ -75,7 +75,7 @@ internal static class DxfHatch
             {
                 var edges=cursor.Count(93);
                 for(int i=0;i<edges;i++)
-                {
+                { LoadingContext.Check();
                     int type=cursor.Count(72);
                     if(type==1)curves.Add(Curve.Line(cursor.Point(),cursor.Point(11,21)));
                     else if(type is 2 or 3)
@@ -140,7 +140,7 @@ internal static class DxfHatch
         {
             cursor.Seek(78);var definitions=cursor.Count(78);if(definitions==0)throw new NotSupportedException("HATCH (missing pattern definition)");
             for(int i=0;i<definitions;i++)
-            {
+            { LoadingContext.Check();
                 var angle=cursor.Take(53)*Math.PI/180;var origin=cursor.Point(43,44);var offset=(Vector)cursor.Point(45,46);
                 int n=cursor.Count(79);var dash=new double[n];for(int j=0;j<n;j++)dash[j]=cursor.Take(49);
                 Pattern(contours,angle,origin,offset,dash,pattern,dots);
@@ -161,7 +161,7 @@ internal static class DxfHatch
     {
         bool inside=false;
         for(int i=0,j=polygon.Length-1;i<polygon.Length;j=i++)
-        {var a=polygon[i];var b=polygon[j];if((a.Y>p.Y)!=(b.Y>p.Y)&&p.X<(b.X-a.X)*(p.Y-a.Y)/(b.Y-a.Y)+a.X)inside=!inside;}
+        { LoadingContext.Check();var a=polygon[i];var b=polygon[j];if((a.Y>p.Y)!=(b.Y>p.Y)&&p.X<(b.X-a.X)*(p.Y-a.Y)/(b.Y-a.Y)+a.X)inside=!inside;}
         return inside;
     }
     private static void Pattern(List<Point[]> contours,double angle,Point origin,Vector offset,double[] dash,List<Curve> output,List<Point> dots)
@@ -176,25 +176,25 @@ internal static class DxfHatch
         var period=dash.Sum(Math.Abs);if(dash.Length>0&&period<=1e-12)throw new InvalidDataException("Zero dash period.");
         long work=0;
         for(double k=lo;k<=hi;k++)
-        {
+        { LoadingContext.Check();
             var at=origin+k*offset;var intersections=new List<double>();
             foreach(var edge in edges)
-            {
+            { LoadingContext.Check();
                 var a=Vector.Multiply(edge.A-at,normal);var b=Vector.Multiply(edge.B-at,normal);
                 if((a>0)==(b>0))continue;
                 var point=edge.A+(edge.B-edge.A)*(a/(a-b));intersections.Add(Vector.Multiply(point-at,direction));
             }
             intersections.Sort();
             for(int i=0;i+1<intersections.Count;i+=2)
-            {
+            { LoadingContext.Check();
                 var begin=intersections[i];var end=intersections[i+1];
                 if(dash.Length==0){output.Add(Curve.Line(at+begin*direction,at+end*direction));continue;}
                 var cycle=Math.Floor(begin/period)*period;
                 for(double t=cycle;t<=end;)
-                {
+                { LoadingContext.Check();
                     var previous=t;
                     foreach(var item in dash)
-                    {
+                    { LoadingContext.Check();
                         if(++work>Limit)throw new NotSupportedException("HATCH (pattern density limit)");
                         var length=Math.Abs(item);
                         if(item==0&&t>=begin&&t<=end)dots.Add(at+t*direction);

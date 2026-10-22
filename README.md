@@ -63,3 +63,8 @@ Only top-down (plan) viewports are drawn; 3D views are skipped with a warning. V
 Not supported yet: gradient hatches, excessively dense hatch patterns, multiline attributes, standalone ELLIPSE entities, binary DXF, external references, block clipping/dynamic block behavior and general 3D/OCS geometry. XY-plane OCS with either normal direction is supported for the new planar primitives and inserts. Unsupported entity types trigger a warning and are counted in the footer. Linetypes and lineweights are not applied. Non-ASCII layer names from legacy code pages may need encoding support.
 
 Units come from `$INSUNITS` when present; otherwise the footer says the drawing units are unspecified. No unit conversion is applied.
+
+
+## Embedding and geometry API
+
+The MIT-licensed Windows/WPF library can be embedded in another application or used to traverse prepared drawing entities and query distances, including text outlines. The local preview is VibeDxf.Wpf 0.2.0-preview.1; it has not been published to NuGet.org. See the [package README](src/VibeDxf.Wpf/README.md), [independent examples](samples/PackageConsumers/README.md), and [MIT license](LICENSE).

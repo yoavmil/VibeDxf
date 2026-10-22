@@ -2,7 +2,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
-using VibeDxf;
+using VibeDxf.Wpf;
 using Xunit;
 
 [Collection("Visual checks")]

@@ -6,7 +6,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.TextFormatting;
 
-namespace VibeDxf;
+namespace VibeDxf.Wpf;
 
 // Layout and outline extraction run only while loading. Rendering reuses immutable GPU geometry.
 internal static class DxfMText

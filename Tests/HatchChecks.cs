@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
-using VibeDxf;
+using VibeDxf.Wpf;
 using Xunit;
 
 [Collection("Visual checks")]
@@ -19,7 +19,7 @@ public sealed class HatchChecks
         object? Call(object target,string name,params object[] args)=>target.GetType().GetMethod(name,flags)!.Invoke(target,args);
         var source=DxfReader.Load(Path.Combine(AppContext.BaseDirectory,"Fixtures","Public","api-cw750-details.dxf"));
         var hatch=source.Entities.Single(e=>e.Handle==handle);
-        var doc=new DxfDocument();doc.Entities.Add(hatch); // Isolate the hatch: no separate outline entity.
+        var doc=new DrawingBuilder();doc.Entities.Add(hatch); // Isolate the hatch: no separate outline entity.
         var view=new DxfViewport();var window=new Window{Content=view,Width=800,Height=600,Left=-20000,Top=-20000,WindowStyle=WindowStyle.None,ShowInTaskbar=false,ShowActivated=false};
         void Pump()=>Dispatcher.CurrentDispatcher.Invoke(()=>{},DispatcherPriority.ApplicationIdle);
         try
@@ -78,7 +78,7 @@ public sealed class HatchChecks
         TestSupport.Near(Math.PI/4-.5,TriangleArea(curved.FillContours),.0002);
     });
 
-    private static double TriangleArea(List<Point[]> contours)
+    private static double TriangleArea(IEnumerable<IReadOnlyList<Point>> contours)
     {
         var triangles=DxfPrimitives.Triangulate(contours);double area=0;
         for(int i=0;i<triangles.Count;i+=3)area+=Math.Abs(Vector.CrossProduct(triangles[i+1]-triangles[i],triangles[i+2]-triangles[i]))/2;
@@ -106,7 +106,7 @@ public sealed class HatchChecks
             foreach(var hatch in hatches)
             {
                 // Switching space changes only the camera and draw ranges, never the uploaded buffers.
-                view.ActiveLayout=doc.Layouts.FindIndex(l=>l.Entities.Contains(hatch));
+                view.ActiveLayout=doc.Layouts.ToList().FindIndex(l=>l.Entities.Contains(hatch));
                 view.ClearSelection();((List<MeasurementTarget>)Field(view,"selected")!).Add(new(hatch));
                 view.GetType().GetField("bounds",flags)!.SetValue(view,hatch.Bounds);view.Fit();Pump();
                 VisualReport.Capture(renderer,$"Sample hatch {hatch.Handle} · {(hatch.FillContours.Count>0?"solid":"pattern")} · orange = hatch strokes and contour, white = surrounding drawing",()=>Render(view));

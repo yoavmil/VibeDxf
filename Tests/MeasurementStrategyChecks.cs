@@ -1,5 +1,5 @@
 using System.Windows;
-using VibeDxf;
+using VibeDxf.Wpf;
 
 static class MeasurementStrategyChecks
 {

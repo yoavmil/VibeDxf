@@ -2,7 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 
-namespace VibeDxf;
+namespace VibeDxf.Wpf;
 
 // MULTILEADER stores its rendered state in CONTEXT_DATA: leader polylines, landing/dogleg and MTEXT.
 // Construction follows ezdxf's render engine. The result is one display-only entity.
@@ -68,7 +68,7 @@ internal static class DxfMLeader
                 (41,V(Get(head,43)*Get(head,40,1))),(71,V(Math.Clamp(Get(head,171,1),1,3))),(11,V(Get(head,13,1))),(21,V(Get(head,23))),
                 (230,V(Get(head,31,1)<0?-1:1)),(1,content)};
             var layout=DxfMText.Read(mtext,layer,handle,warn).Entity;
-            curves.AddRange(layout.Curves);fills.AddRange(layout.FillContours);text=layout.Text;
+            curves.AddRange(layout.Curves);fills.AddRange(layout.FillContours.Select(p=>p.ToArray()));text=layout.Text;
         }
         if(curves.Count==0)throw new NotSupportedException("MULTILEADER (no displayable content)");
         return new DxfEntity("MULTILEADER",layer,handle,curves){FillContours=fills,Text=text,IsApproximate=text!=null,Category=EntityCategory.Multileader};

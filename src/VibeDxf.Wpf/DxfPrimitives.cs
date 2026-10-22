@@ -4,27 +4,27 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
 
-namespace VibeDxf;
+namespace VibeDxf.Wpf;
 
 // Load-time geometry only. No text layout, curve flattening or triangulation occurs during pan/zoom.
 internal static class DxfPrimitives
 {
-    public static List<Curve> Outline(IEnumerable<Point[]> contours) => contours.SelectMany(p =>
-        p.Select((a,i) => Curve.Line(a,p[(i+1)%p.Length]))).ToList();
+    public static List<Curve> Outline(IEnumerable<IReadOnlyList<Point>> contours) => contours.SelectMany(p =>
+        p.Select((a,i) => Curve.Line(a,p[(i+1)%p.Count]))).ToList();
 
     // Contours whose bounding boxes are disjoint can neither contain nor cross each other, so their even/odd
     // fills are independent. Triangulating each overlapping group alone keeps scan strips local to one glyph
     // (with its holes) instead of spanning a whole line of text.
-    public static List<Point> Triangulate(IEnumerable<Point[]> contours)
+    public static List<Point> Triangulate(IEnumerable<IReadOnlyList<Point>> contours)
     {
-        var list=contours.Where(p=>p.Length>0).ToList();
+        var list=contours.Where(p=>p.Count>0).ToList();
         if(list.Count<2)return TriangulateGroup(list);
         var boxes=list.Select(p=>(MinX:p.Min(v=>v.X),MinY:p.Min(v=>v.Y),MaxX:p.Max(v=>v.X),MaxY:p.Max(v=>v.Y))).ToArray();
         var parent=Enumerable.Range(0,list.Count).ToArray();
         int Root(int i){while(parent[i]!=i)i=parent[i]=parent[parent[i]];return i;}
         var active=new List<int>();
         foreach(var i in Enumerable.Range(0,list.Count).OrderBy(i=>boxes[i].MinX))
-        {
+        { LoadingContext.Check();
             active.RemoveAll(j=>boxes[j].MaxX<boxes[i].MinX);
             foreach(var j in active)
                 if(boxes[j].MinY<=boxes[i].MaxY&&boxes[i].MinY<=boxes[j].MaxY)parent[Root(i)]=Root(j);
@@ -38,18 +38,18 @@ internal static class DxfPrimitives
     // Even/odd scan conversion into trapezoids handles concave outlines and glyph holes.
     // Split at both vertices and edge crossings: overlapping/self-intersecting paths
     // can change edge order between vertices, including after a block rotation.
-    private static List<Point> TriangulateGroup(IEnumerable<Point[]> contours)
+    private static List<Point> TriangulateGroup(IEnumerable<IReadOnlyList<Point>> contours)
     {
-        var edges=contours.SelectMany(p=>p.Select((a,i)=>(A:a,B:p[(i+1)%p.Length])))
+        var edges=contours.SelectMany(p=>p.Select((a,i)=>(A:a,B:p[(i+1)%p.Count])))
             .Where(e=>Math.Abs(e.A.Y-e.B.Y)>1e-14).ToArray();
         var levels=edges.SelectMany(e=>new[]{e.A.Y,e.B.Y}).ToList();
         var activeEdges=new List<(Point A,Point B)>();
         foreach(var edge in edges.OrderBy(e=>Math.Min(e.A.X,e.B.X)))
-        {
+        { LoadingContext.Check();
             var minX=Math.Min(edge.A.X,edge.B.X);
             activeEdges.RemoveAll(e=>Math.Max(e.A.X,e.B.X)<minX);
             foreach(var other in activeEdges)
-            {
+            { LoadingContext.Check();
                 if(Math.Max(edge.A.Y,edge.B.Y)<Math.Min(other.A.Y,other.B.Y)||
                     Math.Max(other.A.Y,other.B.Y)<Math.Min(edge.A.Y,edge.B.Y))continue;
                 var u=edge.B-edge.A;var v=other.B-other.A;var determinant=Vector.CrossProduct(u,v);
@@ -69,7 +69,7 @@ internal static class DxfPrimitives
         var byMinY=Enumerable.Range(0,edges.Length).OrderBy(i=>minY[i]).ToArray();
         var spanning=new List<int>();var strip=new List<(double X,int Edge)>();int next=0;
         for(int i=0;i+1<ys.Length;i++)
-        {
+        { LoadingContext.Check();
             var y0=ys[i];var y1=ys[i+1];var mid=(y0+y1)/2;
             // Rotated copies of a shared vertex can differ by a handful of ULPs.
             // Such strips have no reliable interior and can pair the wrong edges.
@@ -80,7 +80,7 @@ internal static class DxfPrimitives
             strip.Clear();foreach(var e in spanning)strip.Add((X(edges[e],mid),e));
             CollectionsMarshal.AsSpan(strip).Sort();
             for(int j=0;j+1<strip.Count;j+=2)
-            {
+            { LoadingContext.Check();
                 var left=edges[strip[j].Edge];var right=edges[strip[j+1].Edge];
                 var a=new Point(X(left,y0),y0);var b=new Point(X(right,y0),y0);
                 var c=new Point(X(right,y1),y1);var d=new Point(X(left,y1),y1);
@@ -114,7 +114,7 @@ internal static class DxfPrimitives
         double cap=typeface.TryGetGlyphTypeface(out var glyph)?glyph.CapsHeight*100:72;
         var contours=new List<Point[]>();
         foreach(var figure in geometry.Figures)
-        {
+        { LoadingContext.Check();
             var pts=new List<Point>{figure.StartPoint};
             foreach(var segment in figure.Segments)
                 if(segment is PolyLineSegment poly)pts.AddRange(poly.Points);
@@ -156,7 +156,7 @@ internal static class DxfPrimitives
         bool approximate=entity.IsApproximate;
         var curves=new List<Curve>();
         foreach(var c in entity.Curves)
-        {
+        { LoadingContext.Check();
             if(c.IsUnbounded)
             {
                 var origin=matrix.Transform(c.Start);var direction=matrix.Transform(c.End-c.Start);
@@ -186,7 +186,7 @@ internal static class DxfPrimitives
             RegionContours=entity.RegionContours?.Select(p=>p.Select(matrix.Transform).ToArray()).ToList(),
             RenderCurves=entity.RenderCurves?.Select(c=>Curve.Line(matrix.Transform(c.Start),matrix.Transform(c.End))).ToList(),
             RenderDots=entity.RenderDots.Select(matrix.Transform).ToList(),
-            Text=entity.Text,IsApproximate=approximate,InstancePath=handle,
+            Text=entity.Text,IsApproximate=approximate,InstancePath=handle,SourceHandle=entity.SourceHandle,ColorSource=entity.ColorSource,
             Category=category??entity.Category,Color=color??entity.Color
         };
     }

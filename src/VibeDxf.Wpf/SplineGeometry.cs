@@ -1,9 +1,9 @@
 using System.IO;
 using System.Windows;
-namespace VibeDxf;
+namespace VibeDxf.Wpf;
 
 /// <summary>Positive-weight NURBS to bounded-error line segments, once at file load.</summary>
-public static class SplineGeometry
+internal static class SplineGeometry
 {
     public const double Tolerance = 0.0001; // DXF drawing units; also used for measurement.
     private readonly record struct H(double X, double Y, double W)
@@ -32,11 +32,11 @@ public static class SplineGeometry
         // Knot insertion preserves the exact rational curve. Multiplicity p exposes
         // each nonempty span as a rational Bezier curve, including periodic domains.
         foreach (double knot in knots.Where(k => k >= start && k <= end).Distinct())
-        {
+        { LoadingContext.Check();
             int multiplicity = u.Count(k => k == knot);
             if (multiplicity > degree + 1) throw new InvalidDataException("Invalid spline knot multiplicity.");
             while (multiplicity < degree)
-            {
+            { LoadingContext.Check();
                 int k = u.FindLastIndex(v => v <= knot);
                 var next = new H[controls.Count+1];
                 for (int i=0; i<=k-degree; i++) next[i]=controls[i];
@@ -54,7 +54,7 @@ public static class SplineGeometry
         return result;
 
         void Subdivide(H[] control,int depth)
-        {
+        { LoadingContext.Check();
             var a=control[0].Point;var b=control[^1].Point;
             if (control.Any(h => h.W<=0 || !double.IsFinite(h.Point.X) || !double.IsFinite(h.Point.Y)))
                 throw new InvalidDataException("Unstable spline weights or coordinates.");
@@ -70,7 +70,7 @@ public static class SplineGeometry
             var work=(H[])control.Clone();var left=new H[control.Length];var right=new H[control.Length];
             left[0]=work[0];right[^1]=work[^1];
             for (int level=1;level<control.Length;level++)
-            {
+            { LoadingContext.Check();
                 for(int i=0;i<control.Length-level;i++) work[i]=H.Blend(work[i],work[i+1],.5);
                 left[level]=work[0];right[control.Length-1-level]=work[control.Length-1-level];
             }
