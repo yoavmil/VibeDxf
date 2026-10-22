@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings></PropertyGroup>
- <ItemGroup><PackageReference Include="VibeDxf.Wpf" Version="[0.2.0-preview.1]" /></ItemGroup>
+ <ItemGroup><PackageReference Include="VibeDxf.Wpf" Version="[0.2.0]" /></ItemGroup>
 </Project>

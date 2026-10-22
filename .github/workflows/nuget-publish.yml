@@ -7,7 +7,7 @@ on:
       source_tag:
         description: 'Existing annotated NuGet source tag'
         required: true
-        default: 'nuget/v0.2.0-preview.1'
+        default: 'nuget/v0.2.0'
         type: string
       publish:
         description: 'Publish after validation (false performs validation only)'

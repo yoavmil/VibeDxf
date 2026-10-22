@@ -147,3 +147,7 @@ Exit: one publicly available package works through the documented APIs and its s
 ## Current tracking
 
 Stages 1, 2, 4, 5 and 6 are complete; Stage 3 was declined. VibeDxf.Wpf 0.2.0-preview.1 is public under MIT, owned by yoav.miller, and matches approved source f019536 and its immutable nuget/v0.2.0-preview.1 tag. Main contains the merged library and publishing workflow. Trusted Publishing is active for this repository/workflow/package; OIDC authentication and isolated public consumers passed. The existing manual package was not pushed again. See NUGET-STAGE6-RESULTS.md for evidence and NUGET-RELEASING.md for future tag-driven releases. No desktop app release was triggered. Preserve .claude/ as user-local configuration. Entity visibility/removal remain excluded, and the abandoned two-package extraction must not be resumed.
+
+## Stable release follow-up
+
+The user explicitly approved publishing VibeDxf.Wpf 0.2.0 (without a prerelease suffix) on 2026-10-22. This promotes the verified preview without API/runtime changes. Source tag: nuget/v0.2.0. The existing preview remains published and immutable. The desktop application is not being released again. Completion requires successful automated publication and isolated public-feed verification.

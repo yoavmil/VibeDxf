@@ -1,5 +1,21 @@
 # Publishing VibeDxf.Wpf
 
+## Stable 0.2.0
+
+The user explicitly approved publishing `VibeDxf.Wpf 0.2.0` as a stable release on
+2026-10-22. It promotes the verified preview with no public API or runtime behavior
+changes. The package README, release metadata and independent sample references
+now use 0.2.0. The desktop app remains at 0.2.0 and is not being released again.
+The source tag is `nuget/v0.2.0`; the automated workflow builds and validates the
+tagged source, publishes its tested artifact, and verifies public-feed consumers.
+The preview version and its tag remain immutable historical releases.
+
+Stable release notes: embeddable DXF viewer, immutable documents with prepared
+text outlines, entity traversal, double-precision distance queries, layouts and
+layer/category controls. Windows and .NET 10 Desktop Runtime are required. The
+documented supported-entity, font/geometry approximation and native-window limits
+are unchanged. Per-entity visibility, removal/editing and DXF writing are excluded.
+
 The NuGet package is independent of the desktop app release. Version 0.2.0-preview.1,
 MIT, nuget.org publication and a source tag were approved by the user. The user
 subsequently requested automated publishing using GitHub Actions Trusted Publishing.
@@ -114,7 +130,7 @@ cache, compares the loaded DLL bytes, and runs console and WPF smoke checks.
 No source links, project references or reflection are allowed in consumers.
 NuGet audit is disabled for the isolated smoke restore; this is not a security audit.
 
-Upload **only** `artifacts/nuget/release/0.2.0-preview.1/VibeDxf.Wpf.0.2.0-preview.1.nupkg`.
+For the stable release, upload **only** the tested `artifacts/nuget/release/0.2.0/VibeDxf.Wpf.0.2.0.nupkg` if using the manual fallback.
 The adjacent `validation.json` and `SHA256SUMS.txt` identify its exact bytes,
 library hash, source commit, contents and validation. Preserve this directory.
 The harness refuses to replace an existing candidate for the same version.
@@ -145,7 +161,7 @@ DLL bytes before reporting success.
 After indexing, on the tagged source commit:
 
 ```powershell
-$candidate = Get-Content artifacts/nuget/release/0.2.0-preview.1/validation.json -Raw | ConvertFrom-Json
+$candidate = Get-Content artifacts/nuget/release/0.2.0/validation.json -Raw | ConvertFrom-Json
 ./tools/Test-LocalPackage.ps1 -PublicFeed -ExpectedCommit $candidate.RepositoryCommit -ExpectedLibrarySha256 $candidate.LibrarySha256
 ```
 

@@ -2,7 +2,7 @@
 
 One Windows/WPF library for embedding a 2D DXF viewer and querying drawing geometry, including prepared text outlines. MIT licensed.
 
-**Preview:** `0.2.0-preview.1`. Requires Windows 10 or later and the .NET 10 Desktop Runtime. Build hosts target `net10.0-windows` with `UseWPF=true`. The package supplies its Vortice 3.8.3 dependencies transitively. This is not a cross-platform or DWG library.
+**Stable release:** `0.2.0`. Requires Windows 10 or later and the .NET 10 Desktop Runtime. Build hosts target `net10.0-windows` with `UseWPF=true`. The package supplies its Vortice 3.8.3 dependencies transitively. This is not a cross-platform or DWG library.
 
 ## Embed the viewer
 

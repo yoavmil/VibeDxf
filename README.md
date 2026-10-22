@@ -67,4 +67,4 @@ Units come from `$INSUNITS` when present; otherwise the footer says the drawing 
 
 ## Embedding and geometry API
 
-The MIT-licensed Windows/WPF library can be embedded in another application or used to traverse prepared drawing entities and query distances, including text outlines. Install [VibeDxf.Wpf 0.2.0-preview.1 from NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.2.0-preview.1). See the [package README](src/VibeDxf.Wpf/README.md), [independent examples](samples/PackageConsumers/README.md), and [MIT license](LICENSE).
+The MIT-licensed Windows/WPF library can be embedded in another application or used to traverse prepared drawing entities and query distances, including text outlines. Install [VibeDxf.Wpf 0.2.0 from NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.2.0). See the [package README](src/VibeDxf.Wpf/README.md), [independent examples](samples/PackageConsumers/README.md), and [MIT license](LICENSE).

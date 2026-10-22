@@ -1,8 +1,8 @@
 # Independent NuGet consumers
 
-These examples use only `PackageReference` to **VibeDxf.Wpf 0.2.0-preview.1**. They have no project reference, linked production source, reflection into internals or extra text-preparation provider.
+These examples use only `PackageReference` to **VibeDxf.Wpf 0.2.0**. They have no project reference, linked production source, reflection into internals or extra text-preparation provider.
 
-Requirements: Windows 10 or later and .NET 10 SDK with WPF support to build. Running requires .NET 10 Desktop Runtime. The package uses the existing Vortice packages transitively. [VibeDxf.Wpf 0.2.0-preview.1 is available on NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.2.0-preview.1).
+Requirements: Windows 10 or later and .NET 10 SDK with WPF support to build. Running requires .NET 10 Desktop Runtime. The package uses the existing Vortice packages transitively. [VibeDxf.Wpf 0.2.0 is available on NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.2.0).
 
 ## Use the published package
 
@@ -17,7 +17,7 @@ dotnet run --project samples/PackageConsumers/ConsoleHost/ConsoleHost.csproj --n
 This config uses nuget.org as the only feed. The separate `NuGet.Config` below is
 for local development candidates; use `NuGet.Public.Config` for the public package.
 
-## Build the local preview and verify both hosts
+## Build the local package and verify both hosts
 
 From the repository root in PowerShell 7:
 
@@ -25,13 +25,13 @@ From the repository root in PowerShell 7:
 ./tools/Test-LocalPackage.ps1
 ```
 
-The script packs the library into `artifacts/nuget/local/`, checks metadata/contents, copies these sources into a new validation directory, and restores into a fresh isolated package cache. It checks that both consumers received the packed DLL bytes, that the preview came from the local feed, and that dependency resolution was transitive. It then runs document-only and hidden WPF smoke checks against a generated synthetic drawing. Reports, consumer builds, downloaded packages and the fixture remain under `artifacts/nuget/validation/<run-id>/`.
+The script packs the library into `artifacts/nuget/local/`, checks metadata/contents, copies these sources into a new validation directory, and restores into a fresh isolated package cache. It checks that both consumers received the packed DLL bytes, that the package came from the local feed, and that dependency resolution was transitive. It then runs document-only and hidden WPF smoke checks against a generated synthetic drawing. Reports, consumer builds, downloaded packages and the fixture remain under `artifacts/nuget/validation/<run-id>/`.
 
 Development packages are intentionally marked `repository commit="local-uncommitted"`. For a release candidate, commit the source and run `./tools/Test-LocalPackage.ps1 -Release -ExpectedCommit (git rev-parse HEAD)`; it requires clean source, records the exact commit and saves the tested candidate/checksums in `artifacts/nuget/release/<version>/`. The script does not commit, push, tag or publish. Restores disable NuGet audit for this integration check; audit success is not implied. See [NuGet release instructions](../../docs/NUGET-RELEASING.md) for manual upload and subsequent public-only restore verification with the approved commit and DLL hash.
 
 ## Open the WPF sample interactively
 
-After creating the local preview:
+After creating the local package:
 
 ```powershell
 dotnet restore samples/PackageConsumers/WpfHost/WpfHost.csproj --configfile samples/PackageConsumers/NuGet.Config
