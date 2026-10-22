@@ -77,6 +77,9 @@ until this final step succeeds. Candidate and public verification artifacts are
 retained for 90 days; regression reports for 14 days. Archive release records before
 artifact expiry.
 
+The publishing job downloads by the artifact ID emitted by validation, so retrying
+only a failed publishing job reuses the already tested candidate from that run.
+
 On rerun, an already indexed version is verified instead of pushed again. A
 different source commit or DLL fails verification. The pipeline does not use
 `--skip-duplicate`, move tags, unlist packages or publish a desktop release. If

@@ -29,6 +29,7 @@ jobs:
     outputs:
       commit: ${{ steps.source.outputs.commit }}
       version: ${{ steps.source.outputs.version }}
+      artifact_id: ${{ steps.candidate_upload.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -64,6 +65,7 @@ jobs:
           SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
         run: ./tools/Test-LocalPackage.ps1 -Release -ExpectedCommit $env:SOURCE_COMMIT
       - name: Preserve tested candidate
+        id: candidate_upload
         uses: actions/upload-artifact@v4
         with:
           name: nuget-candidate-${{ github.run_id }}-${{ github.run_attempt }}
@@ -99,7 +101,8 @@ jobs:
           dotnet-version: '10.0.x'
       - uses: actions/download-artifact@v4
         with:
-          name: nuget-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          artifact-ids: ${{ needs.validate.outputs.artifact_id }}
+          merge-multiple: true
           path: artifacts/nuget/candidate
       - name: Verify candidate and check existing public version
         id: candidate
