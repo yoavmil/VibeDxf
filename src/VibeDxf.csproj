@@ -12,4 +12,5 @@
   <PackageReference Include="Vortice.Direct2D1" Version="3.8.3"/>
   <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3"/>
  </ItemGroup>
+ <ItemGroup><Compile Remove="VibeDxf.Core/**/*.cs"/><EmbeddedResource Remove="VibeDxf.Core/**"/><None Remove="VibeDxf.Core/**"/><ProjectReference Include="VibeDxf.Core/VibeDxf.Core.csproj"/></ItemGroup>
 </Project>

@@ -253,67 +253,10 @@ internal static class DxfMText
         return lines;
     }
 
-    private static List<Token> Parse(string raw,double height,Action<string>? warn)
-    {
-        var tokens=new List<Token>();var state=new Style(height);var stack=new Stack<Style>();var buffer=new StringBuilder();
-        void Flush()
-        {
-            if(buffer.Length==0)return;
-            // Shared TEXT decoding: %% symbols and codes, plus caret-encoded tabs (^I) used in CAD tables.
-            tokens.Add(new(DxfPrimitives.DecodeText(buffer.ToString()),state));buffer.Clear();
-        }
-        for(int i=0;i<raw.Length;i++)
-        {
-            char ch=raw[i];
-            if(ch=='{'){Flush();stack.Push(state);continue;}
-            if(ch=='}'){Flush();if(stack.Count>0)state=stack.Pop();else warn?.Invoke("MTEXT unmatched formatting braces");continue;}
-            if(ch=='\n'){Flush();tokens.Add(new("",state,Break:true));continue;}
-            if(ch=='\r')continue;
-            if(ch!='\\'||i+1==raw.Length){buffer.Append(ch);continue;}
-            char command=raw[++i];
-            if(command is '\\' or '{' or '}'){buffer.Append(command);continue;}
-            if(command=='~'){buffer.Append('\u00a0');continue;}
-            if(command=='U'&&i+5<raw.Length&&raw[i+1]=='+')
-            {buffer.Append(DxfPrimitives.DecodeText(raw.Substring(i-1,7)));i+=5;continue;}
-            Flush();
-            if(command is 'P' or 'X'){tokens.Add(new("",state,Break:true));continue;}
-            if(command is 'L' or 'l'){state=state with{Underline=command=='L'};continue;}
-            if(command is 'O' or 'o'){state=state with{Overline=command=='O'};continue;}
-            if(command is 'K' or 'k'){state=state with{Strike=command=='K'};continue;}
-            int end=raw.IndexOf(';',i+1);
-            if(end<0){warn?.Invoke("MTEXT unterminated format command");buffer.Append('\\').Append(command);continue;}
-            var arg=raw[(i+1)..end];i=end;
-            double Value(bool relative=false)
-            {
-                bool x=arg.EndsWith('x')||arg.EndsWith('X');
-                if(!double.TryParse(x?arg[..^1]:arg,NumberStyles.Float,CultureInfo.InvariantCulture,out var value)||!double.IsFinite(value))
-                    throw new InvalidDataException("Invalid MTEXT format number.");
-                return relative&&x?value*state.Height:value;
-            }
-            switch(command)
-            {
-                case 'H':state=state with{Height=Value(true)};break;
-                case 'W':state=state with{Width=Value()};break;
-                case 'T':state=state with{Tracking=Value()};break;
-                case 'Q':state=state with{Oblique=Value()};break;
-                case 'A':state=state with{Align=(int)Value()};break;
-                case 'f':case 'F':
-                    state=state with{Bold=arg.Contains("|b1",StringComparison.OrdinalIgnoreCase),Italic=arg.Contains("|i1",StringComparison.OrdinalIgnoreCase)};break;
-                case 'C':case 'c':break; // The viewer renders the entire drawing in monochrome.
-                case 'S':
-                    int split=arg.IndexOfAny(['#','/','^']);
-                    if(split<0){warn?.Invoke("MTEXT invalid stacked fraction");tokens.Add(new(arg,state));}
-                    else tokens.Add(new(DxfPrimitives.DecodeText(arg[..split]),state,arg[split],DxfPrimitives.DecodeText(arg[(split+1)..].TrimStart())));
-                    break;
-                default:
-                    warn?.Invoke(command=='p'?"MTEXT paragraph indentation/alignment is simplified":"MTEXT unsupported inline formatting");
-                    break;
-            }
-            if(state.Height<=0||state.Height>height*1000||state.Width<=0||state.Width>1000||state.Tracking<=0||state.Tracking>100||Math.Abs(state.Oblique)>=85)
-                throw new InvalidDataException("Invalid MTEXT character dimensions.");
-        }
-        Flush();if(stack.Count>0)warn?.Invoke("MTEXT unmatched formatting braces");return tokens;
-    }
+    private static List<Token> Parse(string raw,double height,Action<string>? warn) =>
+        VibeDxf.Core.DxfTextFormatting.Parse(raw,height,warn).Select(t=>new Token(t.Text,
+            new Style(t.Style.Height,t.Style.Width,t.Style.Tracking,t.Style.Oblique,t.Style.Bold,t.Style.Italic,t.Style.Underline,t.Style.Overline,t.Style.Strike,t.Style.Align),
+            t.Fraction,t.Denominator,t.Break)).ToList();
 
     private static Ink Glyph(string value,Style style)
     {

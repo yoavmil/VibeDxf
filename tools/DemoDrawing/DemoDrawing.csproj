@@ -13,4 +13,5 @@
  <ItemGroup><Compile Include="../../src/DxfPrimitives.cs" Link="DxfPrimitives.cs"/></ItemGroup>
  <ItemGroup><Compile Include="../../src/DxfHatch.cs" Link="DxfHatch.cs"/></ItemGroup>
  <ItemGroup><Compile Include="../../src/DxfMText.cs" Link="DxfMText.cs"/><Compile Include="../../src/DxfColors.cs" Link="DxfColors.cs"/><Compile Include="../../src/DxfMLeader.cs" Link="DxfMLeader.cs"/></ItemGroup>
+<ItemGroup><ProjectReference Include="../../src/VibeDxf.Core/VibeDxf.Core.csproj"/><Compile Include="../../src/CoreDocumentAdapter.cs" Link="CoreDocumentAdapter.cs"/></ItemGroup>
 </Project>
