@@ -55,15 +55,19 @@ Measurement results include status, closest endpoints, Euclidean distance, signe
 
 ## Supported drawing scope
 
+The 3D polyline, mesh and solid projections below are unreleased source additions, not part of the published 0.2.0 package.
+
 ASCII DXF with supported planar LINE, ARC, CIRCLE, 2D polylines/bulges, SPLINE, RAY/XLINE, POINT, SOLID, TEXT/MTEXT, block inserts/arrays/attributes, solid/patterned HATCH, saved dimension blocks, leaders/multileaders and plan-view layout viewports. Unsupported records and supported approximations produce diagnostics; this is not a full CAD editor or complete DXF implementation.
 
+Legacy 3D POLYLINE, polygon meshes and polyface meshes support exact XY wireframe projection. Measurements and picking use projected visible edges; there is no 3D distance or filled-face containment. Negative polyface indices hide outgoing edges. Z-parallel edges become point markers. Fitted/smoothed legacy 3D curves/surfaces and malformed topology produce skips; projection diagnostics explicitly state that Z is ignored.
+
 Text uses Arial substitution rather than original SHX fonts, and text-outline distances are approximate. Spline approximation is bounded by 0.0001 drawing units per spline, aside from floating-point effects; extreme zoom may reveal chords. Nonuniformly transformed arcs may also be approximate. Gradient/dense hatch patterns, general 3D/OCS geometry, standalone ellipses, DWG/binary DXF, external references, dynamic blocks, original linetypes/lineweights and some text layouts remain unsupported. No unit conversion is applied.
+
+MESH entities expose the level-0 face/edge wireframe projected into XY; projected vertical edges also have point markers. Measurement is to projected edges, not a filled surface or a 3D distance. Subdivision smoothing uses the control cage with an approximation flag and rendering warning; per-face appearance overrides are not displayed.
 
 Per-entity visibility, entity removal/editing, undo and writing/saving DXF files are not implemented. Visibility controls apply to layers/categories and respect per-viewport frozen layers. Source colors/saved layer flags remain unchanged by per-view settings.
 
 `3DSOLID` supports XY boundary wireframes for a bounded straight-edged ACIS SAT/SAB subset. Actual edge/vertex/point topology and each body's 3D transform are resolved before projection. These selectable/measurable edges have no filled region; distances and midpoint targets describe their projected XY boundaries, not 3D distances or solid interiors. Collapsed edges receive point markers. Curved ACIS edges and unsupported topology/encodings are skipped as whole entities with explicit diagnostics rather than fabricated endpoint chords. This is not a general ACIS kernel, hidden-line remover or surface tessellator.
-
-Projected-solid support is an unreleased source addition, not part of the published 0.2.0 package.
 
 ## Ownership and threading
 

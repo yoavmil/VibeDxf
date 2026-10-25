@@ -28,6 +28,8 @@ I use VS2026. The build and run are straightforward.
 
 Reads ASCII DXF LINE, RAY, XLINE, ARC, CIRCLE, LWPOLYLINE and legacy 2D POLYLINE entities, including curved bulge segments, plus control-point SPLINE curves, POINT markers, filled SOLID faces, single-line TEXT, multiline MTEXT and HATCH areas. Blocks and INSERTs are expanded with nested placement, rotation, scaling, mirroring and rectangular arrays. Click an individual block child to select or measure it. Entity type, layer and instance handle path are kept.
 
+Legacy 3D POLYLINE, polygon meshes and polyface meshes are shown as XY wireframes. Polygon grids and polyface face indices determine the edges; negative polyface indices hide the corresponding edges. Z coordinates are validated but discarded, so picking, midpoint snaps and distances use the projected XY edges, not 3D lengths or face interiors. An edge parallel to Z becomes a point marker. Fitted/smoothed 3D curves or surfaces and malformed topology are skipped with a warning.
+
 Text uses an Arial font substitute and supports placement, rotation, width, oblique angle, mirroring and alignment. Original SHX/custom font styles are not reproduced. Text and splines use load-time outline approximations; nonuniformly scaled circular curves become approximate ellipses. Their measurements are marked ≈. Solid distances include the filled interior; point markers measure from their exact coordinate. Rays and construction lines (XLINE) are drawn to the window edge at every zoom and measured exactly along their full length; fitting the drawing uses only their base points. Rays/xlines with an out-of-plane direction are skipped.
 
 MTEXT uses WPF’s text layout engine and supports paragraph breaks, reference-width wrapping at word boundaries (long words may overflow), all nine attachment points, rotation/direction vectors, inline height/width/tracking/oblique changes, bold/italic font flags, underline/overline/strike-through, and stacked fractions. Advanced paragraph indentation/alignment is simplified with a warning. Columns, vertical flow and general 3D text orientation are not supported. Background masks/frames are omitted with a warning.
@@ -42,13 +44,15 @@ Block attributes (ATTRIB) show their values, for example title-block fields and 
 
 Multileaders (MULTILEADER) draw their straight leader lines, landing doglegs, closed filled arrowheads and MTEXT content, and are display-only like dimensions. Spline leaders are drawn straight, custom arrowheads as closed filled arrows, and block content is omitted; each case adds a rendering note.
 
-### Projected solid boundaries
+### Projected meshes and solid boundaries
 
-The projected-solid support below is an unreleased source addition; published NuGet version 0.2.0 and the existing installer do not include it.
+The 3D polyline, mesh and solid projections described here are unreleased source additions; published NuGet version 0.2.0 and the existing installer do not include them.
 
 `3DSOLID` entities with supported straight-edged ACIS geometry are shown as XY boundary wireframes. The reader handles inline SAT data (including AutoCAD's text encoding) and SAB/ASM binary data stored in ACDSDATA, resolves actual edge/vertex/point topology, and applies the solid's 3D body transform before projection. Projected edges support picking, snapping and XY distance queries; edges collapsing to a point get a visible point marker. These are distances to the projected boundary, not true 3D or solid-interior distances. Hidden edges are not removed.
 
 This is a bounded boundary reader rather than a general CAD modelling kernel. Curved ACIS edges, patterned/wire/subshell topology, unknown encodings and invalid geometry are skipped with specific diagnostics; they are never replaced with straight endpoint chords or bounding boxes. The straight-edged solid in `uncommon.dxf` is supported, while the three curved-edge solids in `api-cw750-details.dxf` remain explicitly unsupported.
+
+MESH entities are shown as their level-0 wireframe projected onto XY, including face boundaries and explicit edges. Edges parallel to Z become point markers. Picking and measurements use this projected wireframe and ignore Z; it is not a filled region or a true 3D distance representation. Subdivision smoothing is not evaluated: such meshes show their control cage, report a rendering note and mark measurements approximate. Per-face appearance overrides are omitted with a note.
 
 ### Layers and colors
 
@@ -60,7 +64,7 @@ Layers start as the drawing saved them: layers that are off or frozen are hidden
 - show or hide annotation types: dimensions, leaders, multileaders, text, hatches and viewport frames;
 - switch the drawing to monochrome.
 
-When saved-off layers hide content, the panel opens by itself with a **Show all** button. Hidden items can't be selected or measured. Layers frozen in a single viewport are hidden only in that viewport. Linetypes (dashes) and lineweights are not applied yet.
+When saved-off layers hide content, the panel opens by itself with a **Show all** button. Hidden items are excluded from interactive picking and measurement; document API queries can still measure hidden entities. Layers frozen in a single viewport are hidden only in that viewport. Linetypes (dashes) and lineweights are not applied yet.
 
 ### Model and layout
 
