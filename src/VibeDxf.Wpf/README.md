@@ -59,6 +59,8 @@ ASCII DXF with supported planar LINE, ARC, CIRCLE, 2D polylines/bulges, SPLINE, 
 
 Text uses Arial substitution rather than original SHX fonts, and text-outline distances are approximate. Spline approximation is bounded by 0.0001 drawing units per spline, aside from floating-point effects; extreme zoom may reveal chords. Nonuniformly transformed arcs may also be approximate. Gradient/dense hatch patterns, general 3D/OCS geometry, standalone ellipses, DWG/binary DXF, external references, dynamic blocks, original linetypes/lineweights and some text layouts remain unsupported. No unit conversion is applied.
 
+MESH entities expose the level-0 face/edge wireframe projected into XY; projected vertical edges also have point markers. Measurement is to projected edges, not a filled surface or a 3D distance. Subdivision smoothing uses the control cage with an approximation flag and rendering warning; per-face appearance overrides are not displayed.
+
 Per-entity visibility, entity removal/editing, undo and writing/saving DXF files are not implemented. Visibility controls apply to layers/categories and respect per-viewport frozen layers. Source colors/saved layer flags remain unchanged by per-view settings.
 
 ## Ownership and threading
