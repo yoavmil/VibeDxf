@@ -235,6 +235,7 @@ public sealed class DxfEntity
     /// <summary>Resolved source RGBA, before viewer theme adjustment.</summary>
     public uint Color { get; internal init; } = DxfColors.White;
     internal int Group { get; set; }
+    internal Func<Func<System.Windows.Media.Media3D.Point3D,Point>,DxfEntity>? Projection3D { get; set; }
     /// <summary>Whether geometry includes a ray or infinite straight line.</summary>
     public bool IsUnbounded => Curves.Any(c=>c.IsUnbounded);
     /// <summary>Finite fit bounds in this coordinate space; unbounded curves contribute their base point only.</summary>

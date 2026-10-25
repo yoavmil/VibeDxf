@@ -226,7 +226,7 @@ public sealed class DxfView : Border, IDisposable
         Array.AsReadOnly((Document?.Layers.Select((_, i) => viewport.IsLayerVisible(i)) ?? []).ToArray()),
         Array.AsReadOnly(Enum.GetValues<EntityCategory>().Where(c => !viewport.IsCategoryVisible(c)).ToArray()), Monochrome));
 
-    /// <summary>Toggles an interactively selectable source anchor, optionally displayed through an active paper viewport. Invalid, hidden, annotation or incompatible targets are rejected.</summary>
+    /// <summary>Toggles an interactively selectable source anchor, optionally displayed through an active paper viewport. Invalid, hidden, annotation or incompatible targets are rejected. Nonplan orthographic viewport frames are display-only and throw NotSupportedException.</summary>
     public void Select(MeasurementAnchor anchor, DxfEntityId? viewportFrameId = null)
     {
         VerifyUsable();
@@ -242,8 +242,10 @@ public sealed class DxfView : Border, IDisposable
     private DxfViewportWindow? Window(DxfEntityId? frameId)
     {
         if (frameId == null) return null;
-        return Document?.Layouts.FirstOrDefault(l => l.Id == ActiveLayout)?.Viewports.FirstOrDefault(v => v.FrameEntityId == frameId)
+        var window = Document?.Layouts.FirstOrDefault(l => l.Id == ActiveLayout)?.Viewports.FirstOrDefault(v => v.FrameEntityId == frameId)
             ?? throw new ArgumentException("Viewport must belong to the active layout.", nameof(frameId));
+        if(!window.IsInteractive) throw new NotSupportedException("Nonplan orthographic viewports are display-only; model XY anchors cannot represent their projection.");
+        return window;
     }
     /// <summary>Returns the enabled state for a valid layer in the assigned document.</summary>
     public bool IsLayerVisible(int id) { ValidateLayer(id); return viewport.IsLayerVisible(id); }
@@ -282,12 +284,12 @@ public sealed class DxfView : Border, IDisposable
             viewport.Camera = (value.Scale, value.Offset);
         }
     }
-    /// <summary>Converts DXF XY coordinates to control-relative DIPs, optionally through an active source viewport frame.</summary>
+    /// <summary>Converts DXF XY coordinates to control-relative DIPs, optionally through an active interactive plan viewport. Nonplan orthographic frame IDs throw NotSupportedException.</summary>
     public Point WorldToScreen(Point point, DxfEntityId? viewportFrameId = null)
     {
         VerifyUsable(); ValidatePoint(point); return viewport.ToScreen(Window(viewportFrameId)?.ModelToPaper.Transform(point) ?? point);
     }
-    /// <summary>Converts control-relative DIPs to DXF XY coordinates, optionally into model space through an active viewport.</summary>
+    /// <summary>Converts control-relative DIPs to DXF XY coordinates, optionally through an active interactive plan viewport. Nonplan orthographic frame IDs throw NotSupportedException.</summary>
     public Point ScreenToWorld(Point point, DxfEntityId? viewportFrameId = null)
     {
         VerifyUsable(); ValidatePoint(point); point = viewport.ToWorld(point);

@@ -17,11 +17,11 @@ public sealed class LayoutChecks
     {
         var doc=Drawing();
         Assert.Equal(["M1","M2","MC"],doc.Entities.Select(e=>e.Handle));
-        Assert.Equal("VIEWPORT (3D view)=1,VIEWPORT (outside paper space)=1",
+        Assert.Equal("VIEWPORT (outside paper space)=1",
             string.Join(",",doc.Skipped.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>$"{p.Key}={p.Value}")));
         // The sheet's own view (ID 1) and the off viewport draw nothing.
-        Assert.Equal(["V2","V3"],doc.Layouts.Single().Viewports.Select(v=>v.Handle));
-        Assert.Equal(["P1","V2","V3"],doc.Layouts.Single().Entities.Select(e=>e.Handle));
+        Assert.Equal(["V2","V3","V3D"],doc.Layouts.Single().Viewports.Select(v=>v.Handle));
+        Assert.Equal(["P1","V2","V3","V3D"],doc.Layouts.Single().Entities.Select(e=>e.Handle));
         Assert.All(doc.Layouts.Single().Entities.Where(e=>e.Kind=="VIEWPORT"),e=>Assert.True(e.IsAnnotation));
         var plain=doc.Layouts.Single().Viewports[0];var twisted=doc.Layouts.Single().Viewports[1];
         Assert.Equal(new Rect(1,2,8,6),plain.Paper);Assert.Equal(new Rect(12,2,6,6),twisted.Paper);
@@ -30,7 +30,7 @@ public sealed class LayoutChecks
         PointIs(new(0,5),plain.ModelToPaper.Transform(new Point(0,50)));
         PointIs(new(15,5),twisted.ModelToPaper.Transform(new Point(50,50)));
         PointIs(new(15,-5),twisted.ModelToPaper.Transform(new Point(0,50)));
-        Assert.Equal(new Rect(0,0,20,8),doc.Layouts.Single().Bounds);
+        Assert.Equal(new Rect(0,0,20,13),doc.Layouts.Single().Bounds);
         Assert.Equal(1,doc.RenderingWarnings["VIEWPORT non-rectangular clipping is shown as its rectangle"]);
         // Per-viewport freezes are applied now (no rendering note); "1F" names no layer in this fixture, so nothing is frozen.
         Assert.False(doc.RenderingWarnings.ContainsKey("VIEWPORT frozen layers are still shown"));
@@ -121,6 +121,14 @@ public sealed class LayoutChecks
                 view.ActiveLayout=i;Pump();Assert.Equal(i,view.ActiveLayout);
                 VisualReport.Capture(renderer,$"{file} layout '{doc.Layouts[i].Name}' (paper space and viewports)",()=>view.GetType().GetMethod("RenderNow",flags)!.Invoke(view,null));
                 Assert.Same(lines,Field(renderer,"lineBuffer"));
+                foreach(var spatial in doc.Layouts[i].Viewports.Where(v=>v.IsOrthographic3D))
+                {
+                    var paper=spatial.Paper;var zoom=.9*Math.Min(view.ActualWidth/paper.Width,view.ActualHeight/paper.Height);
+                    view.Camera=(zoom,new Vector(view.ActualWidth/2-(paper.X+paper.Width/2)*zoom,view.ActualHeight/2+(paper.Y+paper.Height/2)*zoom));Pump();
+                    var projected=VisualReport.Capture(renderer,$"{file} orthographic viewport {spatial.Handle} close-up (actual XYZ and ACIS boundaries)",()=>view.GetType().GetMethod("RenderNow",flags)!.Invoke(view,null));
+                    Assert.Contains(projected.Pixels.Where((_,index)=>index%4!=3),channel=>channel>120);
+                    Assert.Same(lines,Field(renderer,"lineBuffer"));
+                }
             }
         }
         finally{window.Close();Pump();}
@@ -131,12 +139,12 @@ public sealed class LayoutChecks
     {
         var doc=DxfReader.Load(Path.Combine(AppContext.BaseDirectory,"Fixtures","Public","api-cw750-details.dxf"));
         Assert.Equal(["Sheet 1","Sheet 2","Sheet 3","Sheet 4"],doc.Layouts.Select(l=>l.Name));
-        // Inactive layouts store ID/status 0; their first VIEWPORT is the sheet view, the isometric 786B is skipped.
+        // Inactive layouts store ID/status 0; their first VIEWPORT is the sheet view, the isometric 786B has its own display-only XYZ projection.
         Assert.Equal(["1B6E","2B75"],doc.Layouts[0].Viewports.Select(v=>v.Handle));
         Assert.Equal(["2007"],doc.Layouts[1].Viewports.Select(v=>v.Handle));
         Assert.Equal(["20BF","21A8"],doc.Layouts[2].Viewports.Select(v=>v.Handle));
-        Assert.Equal(["21CB","2E11"],doc.Layouts[3].Viewports.Select(v=>v.Handle));
-        Assert.Equal(1,doc.Skipped["VIEWPORT (3D view)"]);
+        Assert.Equal(["21CB","2E11","786B"],doc.Layouts[3].Viewports.Select(v=>v.Handle));
+        Assert.True(doc.Layouts[3].Viewports.Single(v=>v.Handle=="786B").IsOrthographic3D);
         // Title block attribute values appear on their own sheet; empty values draw nothing.
         for(int i=0;i<4;i++)
         {

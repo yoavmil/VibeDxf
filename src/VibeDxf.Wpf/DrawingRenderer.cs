@@ -96,6 +96,7 @@ internal sealed class DrawingRenderer : IDisposable
     private ArcBucket[] buckets = [];
     private Part? model;
     private Part[] papers = [];
+    private Dictionary<DxfViewportWindow,Part> projectedParts = [];
     // Visibility table: one flag word per group; groupLayers maps groups to layers for per-viewport freezes.
     private ID3D11Buffer? groupBuffer;
     private ID3D11ShaderResourceView? groupView;
@@ -180,7 +181,7 @@ internal sealed class DrawingRenderer : IDisposable
     /// </summary>
     public void SetDrawing(IEnumerable<DxfEntity> modelEntities, System.Windows.Point origin,
         IReadOnlyList<(IEnumerable<DxfEntity> Entities, System.Windows.Point Origin)> layouts, IReadOnlyList<int>? groupLayers = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, IReadOnlyList<DxfViewportWindow>? projectedViewports = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var lines = new List<Vertex>();
@@ -220,6 +221,12 @@ internal sealed class DrawingRenderer : IDisposable
         }
         var nextModel = Collect(modelEntities.ToArray(), origin);
         var nextPapers = layouts.Select(l => Collect(l.Entities.ToArray(), l.Origin)).ToArray();
+                var nextProjected = (projectedViewports??[]).ToDictionary(v=>v,v=>
+        {
+            var entities=v.ProjectedEntities!.ToArray();var bounds=entities.Aggregate(System.Windows.Rect.Empty,(r,e)=>{r.Union(e.Bounds);return r;});
+            var center=bounds.IsEmpty?default:new System.Windows.Point(bounds.X+bounds.Width/2,bounds.Y+bounds.Height/2);
+            return Collect(entities,center);
+        });
         ID3D11Buffer? Upload<T>(List<T> data) where T : unmanaged =>
             data.Count == 0 ? null : device.CreateBuffer(CollectionsMarshal.AsSpan(data), BindFlags.VertexBuffer, ResourceUsage.Immutable);
         var nextBuffers = new ID3D11Buffer?[6];
@@ -244,7 +251,7 @@ internal sealed class DrawingRenderer : IDisposable
         foreach (var old in new[] { lineBuffer, arcBuffer, rayBuffer, dotBuffer, fillBuffer, pointBuffer }) old?.Dispose();
         lineBuffer = nextBuffers[0]; arcBuffer = nextBuffers[1]; rayBuffer = nextBuffers[2];
         dotBuffer = nextBuffers[3]; fillBuffer = nextBuffers[4]; pointBuffer = nextBuffers[5];
-        Origin = origin; model = nextModel; papers = nextPapers;
+        Origin = origin; model = nextModel; papers = nextPapers; projectedParts = nextProjected;
         lineVertexCount = model.Lines.Count; rayInstanceCount = model.Rays.Count; dotVertexCount = model.Dots.Count;
         fillVertexCount = model.Fills.Count; pointVertexCount = model.Points.Count; buckets = model.Buckets;
         // Visibility table: every group starts visible until the viewer applies its layer and category state.
@@ -330,7 +337,7 @@ internal sealed class DrawingRenderer : IDisposable
                     // Layers frozen in this viewport only: hide their groups for this pass.
                     if (viewport.FrozenLayers.Count > 0)
                         WriteGroups([.. groupFlags.Select((f, g) => g < groupLayers.Length && viewport.FrozenLayers.Contains(groupLayers[g]) ? f & ~GroupVisible : f)]);
-                    Draw(model, viewport.ModelToPaper * camera, dipScale, lineColor, 1, monochrome);
+                    Draw(projectedParts.TryGetValue(viewport,out var projected)?projected:model, viewport.ModelToPaper * camera, dipScale, lineColor, 1, monochrome);
                     if (viewport.FrozenLayers.Count > 0) WriteGroups(groupFlags);
                 }
                 context.RSSetState(rasterizer);

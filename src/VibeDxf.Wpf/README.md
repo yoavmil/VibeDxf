@@ -55,7 +55,7 @@ Measurement results include status, closest endpoints, Euclidean distance, signe
 
 ## Supported drawing scope
 
-The 3D polyline, mesh and solid projections below are unreleased source additions, not part of the published 0.2.0 package.
+The 3D polyline, mesh, solid and orthographic viewport projections below are unreleased source additions, not part of the published 0.2.0 package.
 
 ASCII DXF with supported planar LINE, ARC, CIRCLE, 2D polylines/bulges, SPLINE, RAY/XLINE, POINT, SOLID, TEXT/MTEXT, block inserts/arrays/attributes, solid/patterned HATCH, saved dimension blocks, leaders/multileaders and plan-view layout viewports. Unsupported records and supported approximations produce diagnostics; this is not a full CAD editor or complete DXF implementation.
 
@@ -78,3 +78,5 @@ Path loading owns its stream. `DxfDocument.LoadAsync(stream, leaveOpen: true, ca
 The viewer uses HwndHost, so ordinary WPF controls cannot reliably overlay its native drawing surface. Put panels alongside it or use its rendered measurement overlays. Screen coordinates are control-relative DIPs; world coordinates use DXF XY/y-up values with double precision.
 
 Package contents include the managed library, XML API documentation, this README, MIT license and third-party notices. The dependent Vortice packages retain their own licenses. Public DXF fixtures and application icons/installers are not included. See the repository's `samples/PackageConsumers` for independent WPF and console package consumers and `docs/NUGET-SINGLE-INTEGRATION.md` for more detail.
+
+Orthographic nonplan VIEWPORTs have prepared per-window geometry in their saved DCS view basis, with source XYZ retained for lines, mesh/polyline vertices and supported solid boundaries. Planar geometry uses its stored elevation; nested supported INSERTs retain Z scale, base point and placement. These windows are display-only (`IsOrthographic3D=true`, `IsInteractive=false`); picking/snapping and DxfView model-XY anchor selection or coordinate conversion through their frame IDs are unavailable (`NotSupportedException`). Their `ModelToPaper` matrix maps prepared DCS coordinates, not arbitrary model XYZ. Plan-view viewport behavior is unchanged. Perspective views and depth clipping remain explicit skips; hidden-line removal, shaded surfaces and arbitrary 3D OCS inserts are not implemented. Projection geometry is prepared at load and uploaded once, retaining source layer/category visibility and per-window frozen layers.

@@ -120,7 +120,7 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     {
         if (host.Renderer is not { } renderer) return;
         renderer.SetDrawing(doc.Entities, Center(doc.Bounds),
-            [.. doc.Layouts.Select(l => ((IEnumerable<DxfEntity>)l.Entities, Center(l.Bounds)))], [.. doc.Groups.Select(g => g.Layer)], cancellationToken);
+            [.. doc.Layouts.Select(l => ((IEnumerable<DxfEntity>)l.Entities, Center(l.Bounds)))], [.. doc.Groups.Select(g => g.Layer)], cancellationToken, [.. doc.Layouts.SelectMany(l=>l.Viewports).Where(v=>v.IsOrthographic3D)]);
     }
 
     // ---- Layer and category visibility. Changes rewrite only the renderer's small group table.
@@ -455,7 +455,7 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
         var target = snapMidpoint ? midpointIndex?.Find(point, 8 / scale) : null;
         target ??= Nearest(ActiveEntities, point, 7 / scale, null);
         if (target != null || Layout is not { } layout) return target;
-        if (ViewportAt(layout, point) is not { } viewport) return null;
+        if (ViewportAt(layout, point) is not { } viewport || !viewport.IsInteractive) return null;
         var (model, zoom) = ToModel(viewport, point);
         var snap = snapMidpoint ? modelIndex?.Find(model, 8 / scale / zoom) : null;
         if (snap != null && !viewport.FrozenLayers.Contains(LayerIndex(snap.Entity))) return snap with { Viewport = viewport };
@@ -488,7 +488,7 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     {
         var paper = midpointIndex?.Find(point, 8 / scale);
         if (paper != null || Layout is not { } layout) return paper;
-        if (ViewportAt(layout, point) is not { } viewport) return null;
+        if (ViewportAt(layout, point) is not { } viewport || !viewport.IsInteractive) return null;
         var (model, zoom) = ToModel(viewport, point);
         return modelIndex?.Find(model, 8 / scale / zoom) is { } snap && !viewport.FrozenLayers.Contains(LayerIndex(snap.Entity))
             ? snap with { Viewport = viewport } : null;

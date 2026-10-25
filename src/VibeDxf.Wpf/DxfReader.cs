@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Windows;
+using System.Windows.Media.Media3D;
 namespace VibeDxf.Wpf;
 internal static class DxfReader
 {
@@ -112,17 +113,28 @@ internal static class DxfReader
         List<DxfEntity> Output()=>target?.Entities??doc.Entities;
         void ReadViewport(Record r,LayoutBuilder layout)
         {
+            if(r.Fields.Any(f=>f.Code is 10 or 20 or 40 or 41 or 45 or 12 or 22 or 16 or 26 or 36 or 17 or 27 or 37 or 51 &&
+                (!double.TryParse(f.Value,NumberStyles.Float,CultureInfo.InvariantCulture,out var n)||!double.IsFinite(n))))
+            {Skip("VIEWPORT (invalid view)");return;}
             var flags=(long)r.N(90);
             // The sheet view is ID 1 in the active layout. Inactive layouts store ID and status 0 for every
             // viewport, so there the first one is the sheet view and the status is not meaningful.
             bool first=!layout.SheetViewSeen;layout.SheetViewSeen=true;
             if(r.N(69)==1||(first&&r.N(69)==0))return;
             if((flags&131072)!=0||(layout==active&&r.Fields.Any(f=>f.Code==68)&&r.N(68)==0))return;
-            if((flags&1)!=0||Math.Abs(r.N(16))>1e-9||Math.Abs(r.N(26))>1e-9||r.N(36,1)<=0){Skip("VIEWPORT (3D view)");return;}
+            if((flags&1)!=0){Skip("VIEWPORT (perspective view)");return;}
+            if((flags&6)!=0){Skip("VIEWPORT (depth clipping)");return;}
+            bool spatial=Math.Abs(r.N(16))>1e-9||Math.Abs(r.N(26))>1e-9||r.N(36,1)<=0;
+            Func<Point3D,Point>? project=null;
+            if(spatial)
+            {
+                try { project=DxfOrthographicProjection.Create(new(r.N(16),r.N(26),r.N(36,1)),new(r.N(17),r.N(27),r.N(37))); }
+                catch(InvalidDataException){Skip("VIEWPORT (invalid direction)");return;}
+            }
             double width=r.N(40),height=r.N(41),viewHeight=r.N(45);
             if(!(width>0&&height>0&&viewHeight>0)){Skip("VIEWPORT (invalid view)");return;}
             var scale=height/viewHeight;var transform=System.Windows.Media.Matrix.Identity;
-            transform.Translate(-r.N(17),-r.N(27));transform.Scale(scale,scale);transform.Rotate(r.N(51));
+            if(!spatial)transform.Translate(-r.N(17),-r.N(27));transform.Scale(scale,scale);transform.Rotate(r.N(51));
             transform.Translate(r.N(10)-r.N(12)*scale,r.N(20)-r.N(22)*scale);
             var paper=new Rect(r.N(10)-width/2,r.N(20)-height/2,width,height);
             // Group 331 lists layers frozen in this viewport only, by LAYER table handle.
@@ -132,7 +144,8 @@ internal static class DxfReader
             var frame=new DxfEntity("VIEWPORT",r.S(8,"0"),r.S(5),DxfPrimitives.Outline([corners]))
                 {Category=EntityCategory.ViewportFrame,Color=ColorOf(r,r.S(8,"0"),null),ColorSource=new(Int(r,62),Int(r,420))};
             layout.Entities.Add(frame);
-            layout.Viewports.Add(new DxfViewportWindow(r.S(5),paper,transform){FrozenLayers=frozen,FrameEntity=frame});
+            layout.Viewports.Add(new DxfViewportWindow(r.S(5),paper,transform){FrozenLayers=frozen,FrameEntity=frame,IsOrthographic3D=spatial,ProjectPoint3D=project});
+            if(spatial)Note("VIEWPORT orthographic 3D projection is display-only; picking, snapping and model XY anchors are unavailable");
             if((flags&65536)!=0&&r.Fields.Any(f=>f.Code==340))Note("VIEWPORT non-rectangular clipping is shown as its rectangle");
         }
         // Shared by INSERT and dimension blocks; a successful lookup pushes the name onto the cycle stack.
@@ -143,14 +156,14 @@ internal static class DxfReader
             if(stack.Count>=32||!stack.Add(name)){Skip(kind+" (recursive or too deep)");return false;}
             return true;
         }
-        void Expand(Record record,System.Windows.Media.Matrix parent,string inheritedLayer,string path,HashSet<string> stack,EntityCategory? category,uint color)
+        void Expand(Record record,System.Windows.Media.Matrix parent,string inheritedLayer,string path,HashSet<string> stack,EntityCategory? category,uint color,double parentZScale,double parentZOffset)
         {
             var name=record.S(2);
             if(!Enter("INSERT",name,stack,out var block))return;
             try
             {
-                var sx=record.N(41,1);var sy=record.N(42,1);
-                if(sx==0||sy==0){Skip("INSERT (zero scale)");return;}
+                var sx=record.N(41,1);var sy=record.N(42,1);var sz=record.N(43,1);var normalSign=record.N(230,1)<0?-1:1;
+                if(sx==0||sy==0||sz==0){Skip("INSERT (zero scale)");return;}
                 int columns=Math.Max(1,(int)record.N(70,1)),rows=Math.Max(1,(int)record.N(71,1));
                 if((long)columns*rows>100000){Skip("INSERT (array limit)");return;}
                 var layer=record.S(8,"0");if(layer=="0")layer=inheritedLayer;
@@ -165,13 +178,13 @@ internal static class DxfReader
                     transform.Rotate(record.N(50));transform.Translate(record.N(10),record.N(20));
                     if(record.N(230,1)<0)transform.Append(new(-1,0,0,1,0,0));
                     transform.Append(parent);
-                    Process(block.Records,transform,layer,$"{path}{record.S(5,name)}[{row},{col}]/",stack,category,color);
+                    Process(block.Records,transform,layer,$"{path}{record.S(5,name)}[{row},{col}]/",stack,category,color,normalSign*sz*parentZScale,normalSign*(record.N(30)-block.Header.N(30)*sz)*parentZScale+parentZOffset);
                 }
             }
             finally{stack.Remove(name);}
         }
         // The anonymous *D block already holds the dimension graphics in WCS; only group 12 (copied dimensions) moves it.
-        void ExpandDimension(Record record,System.Windows.Media.Matrix parent,string inheritedLayer,string path,HashSet<string> stack,uint color)
+        void ExpandDimension(Record record,System.Windows.Media.Matrix parent,string inheritedLayer,string path,HashSet<string> stack,uint color,double parentZScale,double parentZOffset)
         {
             var name=record.S(2);
             if(!Enter(record.Kind,name,stack,out var block))return;
@@ -185,25 +198,38 @@ internal static class DxfReader
                 if(record.N(230,1)<0)transform.Append(new(-1,0,0,1,0,0));
                 transform.Append(parent);
                 var before=Output().Count;
-                Process(block.Records,transform,layer,$"{path}{record.S(5,name)}/",stack,EntityCategory.Dimension,color);
+                Process(block.Records,transform,layer,$"{path}{record.S(5,name)}/",stack,EntityCategory.Dimension,color,parentZScale*(record.N(230,1)<0?-1:1),record.N(32)*(record.N(230,1)<0?-1:1)*parentZScale+parentZOffset);
                 if(Output().Count==before)Skip(record.Kind+" (empty block)");
             }
             finally{stack.Remove(name);}
         }
         // category: dimension/leader block content overrides its children's categories.
         // blockColor: the enclosing insert's resolved color, used by BYBLOCK children.
-        void Process(List<Record> records,System.Windows.Media.Matrix matrix,string inheritedLayer,string path,HashSet<string> stack,EntityCategory? category=null,uint? blockColor=null)
+        void Process(List<Record> records,System.Windows.Media.Matrix matrix,string inheritedLayer,string path,HashSet<string> stack,EntityCategory? category=null,uint? blockColor=null,double zScale=1,double zOffset=0)
         {
             List<(Point P,double Bulge)>? vertices=null;
             DxfPolylineProjection? projectedPolyline=null; string? projectedPolylineError=null;
             string polyLayer="0",polyHandle="";bool polyClosed=false;uint polyColor=DxfColors.White;
-            uint color=DxfColors.White;
+            uint color=DxfColors.White;double recordElevation=0,polyElevation=0,recordZSign=1;
             DxfColorSource colorSource = new(), polyColorSource = new();
             void Add(DxfEntity entity,uint? colorOverride=null,DxfColorSource? sourceOverride=null)
             {
                 if(doc.Entities.Count+doc.Layouts.Sum(l=>l.Entities.Count)>=1000000)throw new InvalidDataException("Expanded drawing exceeds one million entities.");
                 var layer=entity.Layer=="0"?inheritedLayer:entity.Layer;
-                try { entity.ColorSource=sourceOverride??colorSource; Output().Add(DxfPrimitives.Transform(entity,matrix,layer,path+entity.Handle,category,colorOverride??color)); }
+                try
+                {
+                    entity.ColorSource=sourceOverride??colorSource;
+                    var placement=matrix;var placementZScale=zScale*recordZSign;var placementZOffset=zOffset;var elevation=recordElevation;var name=path+entity.Handle;var resolved=colorOverride??color;
+                    var sourceProjection=entity.Projection3D;
+                    var transformed=DxfPrimitives.Transform(entity,placement,layer,name,category,resolved);
+                    transformed.Projection3D=projection=>
+                    {
+                        Point Map(Point3D p){LoadingContext.Check();var q=placement.Transform(new Point(p.X,p.Y));return projection(new(q.X,q.Y,p.Z*placementZScale+placementZOffset));}
+                        var projected=sourceProjection?.Invoke(Map)??DxfOrthographicProjection.Planar(entity,Map,elevation);
+                        return DxfPrimitives.Transform(projected,System.Windows.Media.Matrix.Identity,layer,name,category,resolved);
+                    };
+                    Output().Add(transformed);
+                }
                 catch(InvalidDataException){Skip(entity.Kind+" (transformed geometry limit)");}
             }
             foreach(var record in records)
@@ -217,6 +243,7 @@ internal static class DxfReader
                 string S(int c,string fallback="")=>record.S(c,fallback);
                 double N(int c,double fallback=0)=>record.N(c,fallback);
                 Point P(int x,int y)=>new(N(x),N(y));
+                recordElevation=N(38,N(30));recordZSign=1;Func<Func<Point3D,Point>,DxfEntity>? sourceProjector=null;
                 var recordLayer=S(8,"0");if(recordLayer=="0")recordLayer=inheritedLayer;
                 color=ColorOf(record,recordLayer,blockColor);
                 // OCS parallel to XY is supported, including a reversed normal. General 3D is intentionally excluded.
@@ -227,7 +254,7 @@ internal static class DxfReader
                 }
                 var originalMatrix=matrix;
                 if(record.Kind is "HATCH" or "SOLID" or "TEXT" or "ATTDEF" or "ATTRIB" or "CIRCLE" or "ARC" or "LWPOLYLINE" && N(230,1)<0)
-                {var mirror=new System.Windows.Media.Matrix(-1,0,0,1,0,0);mirror.Append(matrix);matrix=mirror;}
+                {var mirror=new System.Windows.Media.Matrix(-1,0,0,1,0,0);mirror.Append(matrix);matrix=mirror;recordZSign=-1;}
                 var curves = new List<Curve>();
                 List<Point[]> fill=[];string? text=null;bool solidApproximate=false;
                 switch (p.Value)
@@ -285,7 +312,14 @@ internal static class DxfReader
                         {
                             bool hasBinary=solidData.TryGetValue(S(5),out var binary);
                             if(hasBinary&&binary==null)throw new InvalidDataException("Duplicate solid payloads.");
-                            curves=DxfSolidProjection.Read(fields.Select(f=>(f.Code,f.Value)).ToArray(),binary,out solidApproximate);
+                            var solidFields=fields.Select(f=>(f.Code,f.Value)).ToArray();var sourceLayer=S(8,"0");var sourceHandle=S(5);
+                            curves=DxfSolidProjection.Read(solidFields,binary,out solidApproximate);
+                            sourceProjector=projection=>
+                            {
+                                var boundary=DxfSolidProjection.ReadProjected(solidFields,binary,projection,out var approximate);
+                                return new DxfEntity("3DSOLID",sourceLayer,sourceHandle,boundary)
+                                {IsApproximate=approximate,RenderDots=boundary.Where(c=>c.Start==c.End).Select(c=>c.Start).Distinct().ToArray()};
+                            };
                             if(solidApproximate)Note("3DSOLID projected ellipse edges approximated within 0.0001 drawing units before INSERT scaling");
                             Note("3DSOLID shown as XY boundary wireframe; distances are projected, not 3D");
                         }
@@ -294,14 +328,25 @@ internal static class DxfReader
                         {Skip("3DSOLID (invalid ACIS geometry)");}
                         break;
                     case "MESH":
-                        try { Add(DxfMeshProjection.Read(fields.Select(f=>(f.Code,f.Value)).ToArray(),S(8,"0"),S(5),Note)); }
+                        try
+                        {
+                            var meshFields=fields.Select(f=>(f.Code,f.Value)).ToArray();var meshLayer=S(8,"0");var meshHandle=S(5);
+                            var mesh=DxfMeshProjection.Read(meshFields,meshLayer,meshHandle,Note);
+                            mesh.Projection3D=projection=>DxfMeshProjection.Read(meshFields,meshLayer,meshHandle,_=>{},projection);
+                            Add(mesh);
+                        }
                         catch(InvalidDataException) { Skip("MESH (invalid topology)"); }
                         break;
                     // Dimension blocks use POINT only for non-plotting definition points.
                     case "POINT": if(category==EntityCategory.Dimension)break; curves.Add(Curve.Line(P(10,20),P(10,20)));break;
                     case "SOLID":
                         var corners=new[]{P(10,20),P(11,21),fields.Any(f=>f.Code==13)?P(13,23):P(12,22),P(12,22)};
-                        fill.Add(corners.Distinct().ToArray());curves=DxfPrimitives.Outline(fill);break;
+                        fill.Add(corners.Distinct().ToArray());curves=DxfPrimitives.Outline(fill);
+                        var solidCorners=new[]{new Point3D(N(10),N(20),N(30)),new Point3D(N(11),N(21),N(31)),
+                            fields.Any(f=>f.Code==13)?new Point3D(N(13),N(23),N(33)):new Point3D(N(12),N(22),N(32)),new Point3D(N(12),N(22),N(32))}.Distinct().ToArray();
+                        var solidLayer=S(8,"0");var solidHandle=S(5);
+                        sourceProjector=projection=>{var contour=solidCorners.Select(projection).ToArray();return new DxfEntity("SOLID",solidLayer,solidHandle,DxfPrimitives.Outline([contour])){FillContours=[contour]};};
+                        break;
                     case "TEXT":
                         if(((int)N(71)&~6)!=0){Skip("TEXT (unsupported flags)");break;}
                         try
@@ -376,7 +421,7 @@ internal static class DxfReader
                                     arrowTransform.Rotate(Math.Atan2(axis.Y,axis.X)*180/Math.PI);arrowTransform.Translate(points[0].X,points[0].Y);
                                     arrowTransform.Append(matrix);
                                     var arrowLayer=S(8,"0");if(arrowLayer=="0")arrowLayer=inheritedLayer;
-                                    Process(arrow.Records,arrowTransform,arrowLayer,$"{path}{S(5)}/arrow/",stack,category??EntityCategory.Leader,color);
+                                    Process(arrow.Records,arrowTransform,arrowLayer,$"{path}{S(5)}/arrow/",stack,category??EntityCategory.Leader,color,zScale,zOffset);
                                 }
                                 finally{stack.Remove(arrowName);}
                             }
@@ -385,13 +430,18 @@ internal static class DxfReader
                         break;
                     }
                     case "INSERT":
-                        Expand(record,matrix,inheritedLayer,path,stack,category,color);break;
+                        Expand(record,matrix,inheritedLayer,path,stack,category,color,zScale,zOffset);break;
                     case "VIEWPORT":
                         if(stack.Count!=0||target==null){Skip("VIEWPORT (outside paper space)");break;}
                         ReadViewport(record,target);break;
                     case "DIMENSION": case "ARC_DIMENSION": case "LARGE_RADIAL_DIMENSION":
-                        ExpandDimension(record,matrix,inheritedLayer,path,stack,color);break;
-                    case "LINE": curves.Add(Curve.Line(P(10, 20), P(11, 21))); break;
+                        ExpandDimension(record,matrix,inheritedLayer,path,stack,color,zScale,zOffset);break;
+                    case "LINE":
+                        curves.Add(Curve.Line(P(10,20),P(11,21)));
+                        var lineStart=new Point3D(N(10),N(20),N(30));var lineEnd=new Point3D(N(11),N(21),N(31));
+                        var lineLayer=S(8,"0");var lineHandle=S(5);
+                        sourceProjector=projection=>new DxfEntity("LINE",lineLayer,lineHandle,[Curve.Line(projection(lineStart),projection(lineEnd))]);
+                        break;
                     case "RAY": case "XLINE":
                         // Base point and unit direction are WCS vectors, not OCS; only XY directions are drawable.
                         var direction = P(11, 21) - new Point();
@@ -416,7 +466,7 @@ internal static class DxfReader
                         curves = Polyline(vs, ((int)N(70) & 1) != 0); break;
                     case "POLYLINE":
                         vertices=null; projectedPolyline=null; projectedPolylineError=null;
-                        polyLayer=S(8,"0"); polyHandle=S(5); polyColor=color; polyColorSource=colorSource;
+                        polyElevation=recordElevation;polyLayer=S(8,"0"); polyHandle=S(5); polyColor=color; polyColorSource=colorSource;
                         if (((int)N(70) & (8 | 16 | 64)) != 0)
                         {
                             try { projectedPolyline=new(fields.Select(f=>(f.Code,f.Value)).ToArray()); }
@@ -439,7 +489,9 @@ internal static class DxfReader
                             try
                             {
                                 if(projectedPolylineError!=null)throw new InvalidDataException(projectedPolylineError);
-                                Add(projectedPolyline.Finish(polyLayer,polyHandle),polyColor,polyColorSource);
+                                var poly=projectedPolyline;var pl=polyLayer;var ph=polyHandle;
+                                var polyEntity=poly.Finish(pl,ph);polyEntity.Projection3D=projection=>poly.Finish(pl,ph,projection);
+                                Add(polyEntity,polyColor,polyColorSource);
                                 Note(projectedPolyline.Description+" displayed as XY wireframe projection; measurements ignore Z");
                             }
                             catch(InvalidDataException ex){Skip(projectedPolyline.Description+" ("+ex.Message+")");}
@@ -447,7 +499,7 @@ internal static class DxfReader
                         }
                         if (vertices != null)
                         {
-                            var cs = Polyline(vertices, polyClosed);
+                            recordElevation=polyElevation;var cs = Polyline(vertices, polyClosed);
                             if (cs.Count > 0) Add(new DxfEntity("POLYLINE", polyLayer, polyHandle, cs), polyColor, polyColorSource);
                             vertices = null;
                         }
@@ -457,7 +509,7 @@ internal static class DxfReader
                 }
                 if (curves.Count > 0) Add(new DxfEntity(p.Value,S(8,"0"),S(5),curves){FillContours=fill,Text=text,
                     RenderDots=p.Value=="3DSOLID"?curves.Where(c=>c.Start==c.End).Select(c=>c.Start).Distinct().ToArray():[],
-                    IsApproximate=solidApproximate || p.Value is "SPLINE" or "TEXT" or "ATTDEF" or "ATTRIB"});
+                    Projection3D=sourceProjector,IsApproximate=solidApproximate || p.Value is "SPLINE" or "TEXT" or "ATTDEF" or "ATTRIB"});
 
                 matrix=originalMatrix;
             }
@@ -484,6 +536,17 @@ internal static class DxfReader
             if(!groups.TryGetValue(key,out var group)){group=groups[key]=doc.Groups.Count;doc.Groups.Add(key);}
             entity.Group=group;
         }
+        long projectionWork=0;
+        foreach(var layout in doc.Layouts)
+            foreach(var window in layout.Viewports.Where(v=>v.IsOrthographic3D).ToArray())
+                try { window.ProjectedEntities=DxfOrthographicProjection.Prepare(window,doc.Entities,ref projectionWork); }
+                catch(Exception ex) when(ex is InvalidDataException or NotSupportedException)
+                {
+                    layout.Viewports.Remove(window);if(window.FrameEntity!=null)layout.Entities.Remove(window.FrameEntity);
+                    Skip("VIEWPORT (unsupported projected geometry or limit)");
+                }
+        // XYZ callbacks are load-time builders only. Do not retain source records after publication.
+        foreach(var entity in all)entity.Projection3D=null;
         // Fills are independent and Triangulate is pure; the renderer still concatenates them in entity order.
         Parallel.ForEach(all.Where(e=>e.FillContours.Count>0),new ParallelOptions{CancellationToken=LoadingContext.Token},e=>e.FillTriangles=Array.AsReadOnly(DxfPrimitives.Triangulate(e.FillContours).ToArray()));
         if(all.Count==0)throw new InvalidDataException("No supported geometry was found. Supported: points, lines, rays, construction lines, arcs, circles, 2D polylines, splines, solids, text, attributes, dimensions, leaders, multileaders and block inserts. Skipped: "+string.Join(", ",doc.Skipped.Select(p=>$"{p.Key} ({p.Value})")));
