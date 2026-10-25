@@ -262,6 +262,10 @@ internal static class DxfReader
                         catch(Exception ex) when(ex is InvalidDataException or FormatException or OverflowException or ArgumentException)
                         {Skip("HATCH (invalid or unsupported boundary/pattern)");}
                         break;
+                    case "MESH":
+                        try { Add(DxfMeshProjection.Read(fields.Select(f=>(f.Code,f.Value)).ToArray(),S(8,"0"),S(5),Note)); }
+                        catch(InvalidDataException) { Skip("MESH (invalid topology)"); }
+                        break;
                     // Dimension blocks use POINT only for non-plotting definition points.
                     case "POINT": if(category==EntityCategory.Dimension)break; curves.Add(Curve.Line(P(10,20),P(10,20)));break;
                     case "SOLID":

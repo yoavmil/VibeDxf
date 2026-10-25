@@ -61,7 +61,7 @@ public sealed class XunitChecks(ITestOutputHelper output)
 
  [Theory]
  [InlineData("api-cw750-details.dxf",4313,0,"3DSOLID=3,VIEWPORT (3D view)=1","Sheet 1:63/2;Sheet 2:73/1;Sheet 3:74/2;Sheet 4:62/2")]
- [InlineData("uncommon.dxf",148,1,"3D POLYLINE=2,3DSOLID=1,MESH=1","")]
+ [InlineData("uncommon.dxf",149,1,"3D POLYLINE=2,3DSOLID=1","")]
  public void PublicDrawingAndGpuUpload(string file,int expectedEntities,int expectedSplines,string expectedSkipped,string expectedLayouts) => TestSupport.Run($"Public drawing: {file}",()=>
  {
   var path=System.IO.Path.Combine(AppContext.BaseDirectory,"Fixtures","Public",file);
