@@ -113,6 +113,7 @@ public sealed class SolidProjectionChecks
 
     [Theory]
     [InlineData("pointer")][InlineData("nonfinite")][InlineData("truncated")][InlineData("curve")][InlineData("topology")][InlineData("offcurve")]
+    [InlineData("record-count")][InlineData("body-count")]
     public void InvalidSatIsNeverPartiallyDrawn(string kind)=>TestSupport.Run("3DSOLID invalid SAT: "+kind,()=>
     {
         string data=kind switch
@@ -122,6 +123,8 @@ public sealed class SolidProjectionChecks
             "truncated"=>TriangleSat.Replace("End-of-ACIS-data",""),
             "curve"=>TriangleSat.Replace("straight-curve","ellipse-curve"),
             "topology"=>TriangleSat.Replace("$-1 $1 $-1 $21 #","$-1 $8 $-1 $21 #"),
+            "record-count"=>TriangleSat.Replace("700 0 1 0","700 999999999 1 0"),
+            "body-count"=>TriangleSat.Replace("700 0 1 0","700 0 2 0"),
             _=>TriangleSat.Replace("point $-1 -1 $-1 3 0 4 #","point $-1 -1 $-1 300 0 4 #")
         };
         var doc=Load(Inline(data));Assert.DoesNotContain(doc.Entities,e=>e.Kind=="3DSOLID");Assert.Single(doc.Skipped);

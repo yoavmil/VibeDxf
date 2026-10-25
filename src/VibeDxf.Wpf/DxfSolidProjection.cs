@@ -134,8 +134,12 @@ internal static class DxfSolidProjection
     {
         if (!int.TryParse(lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault(), out _))
             lines = lines.Select(DecodeSat).ToList();
-        if (lines.Count < 4 || !int.TryParse(lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries)[0], out var version)) throw Invalid();
+        if (lines.Count < 4) throw Invalid();
+        var header=lines[0].Split(' ',StringSplitOptions.RemoveEmptyEntries);
+        if(header.Length!=4||!int.TryParse(header[0],out int version)||!int.TryParse(header[1],out int declaredRecords)||
+            !int.TryParse(header[2],out int declaredBodies)||!int.TryParse(header[3],out _))throw Invalid();
         if (version < 700 || version > 30000) throw Unsupported("ACIS version");
+        if(declaredRecords<0||declaredRecords>MaxRecords||declaredBodies<1||declaredBodies>MaxRecords)throw Invalid();
         string text = string.Join('\n', lines.Skip(3));
         var result = new List<Node>(); int pos = 0, tokens = 0; bool ended = false;
         string Next()
@@ -185,7 +189,7 @@ internal static class DxfSolidProjection
             result.Add(new(name, data.ToArray()));
             if (result.Count > MaxRecords) throw Unsupported("record limit");
         }
-        if (!ended) throw Invalid();
+        if (!ended||(declaredRecords!=0&&declaredRecords!=result.Count)||result.Count(n=>n.Name is "body" or "asmheader")!=declaredBodies) throw Invalid();
         return result;
     }
 
