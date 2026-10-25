@@ -31,6 +31,7 @@ internal static class DxfReader
         var dimStyles=new Dictionary<string,Record>(StringComparer.OrdinalIgnoreCase);
         var layoutRecords=new List<Record>();var layerRecords=new List<Record>();
         var entities=new List<Record>();string section="";List<Record>? blockRecords=null;
+        var solidData=new Dictionary<string,IReadOnlyList<(int Code,string Value)>?>(StringComparer.OrdinalIgnoreCase);
         for(int i=0;i<pairs.Count;)
         { LoadingContext.Check();
             if(pairs[i].Code!=0){i++;continue;}
@@ -43,6 +44,20 @@ internal static class DxfReader
             else if(section=="TABLES"&&record.Kind=="DIMSTYLE")dimStyles[record.S(2)]=record;
             else if(section=="TABLES"&&record.Kind=="LAYER")layerRecords.Add(record);
             else if(section=="OBJECTS"&&record.Kind=="LAYOUT")layoutRecords.Add(record);
+            else if(section=="ACDSDATA"&&record.Kind=="ACDSRECORD")
+            {
+                string subsection="",owner="";List<(int Code,string Value)> binary=[];
+                foreach(var field in record.Fields)
+                {
+                    if(field.Code==2)subsection=field.Value;
+                    else if(subsection=="AcDbDs::ID"&&field.Code==320)owner=field.Value;
+                    else if(subsection=="ASM_Data"&&field.Code is 94 or 310)binary.Add((field.Code,field.Value));
+                }
+                if(owner.Length!=0&&binary.Count!=0)
+                {
+                    if(!solidData.TryAdd(owner,binary))solidData[owner]=null;
+                }
+            }
             else if(section=="BLOCKS")
             {
                 if(record.Kind=="BLOCK")
@@ -265,6 +280,18 @@ internal static class DxfReader
                         catch(Exception ex) when(ex is InvalidDataException or FormatException or OverflowException or ArgumentException)
                         {Skip("HATCH (invalid or unsupported boundary/pattern)");}
                         break;
+                    case "3DSOLID":
+                        try
+                        {
+                            bool hasBinary=solidData.TryGetValue(S(5),out var binary);
+                            if(hasBinary&&binary==null)throw new InvalidDataException("Duplicate solid payloads.");
+                            curves=DxfSolidProjection.Read(fields.Select(f=>(f.Code,f.Value)).ToArray(),binary);
+                            Note("3DSOLID shown as XY boundary wireframe; distances are projected, not 3D");
+                        }
+                        catch(NotSupportedException ex){Skip(ex.Message);}
+                        catch(Exception ex) when(ex is InvalidDataException or EndOfStreamException or FormatException or OverflowException or ArgumentException)
+                        {Skip("3DSOLID (invalid ACIS geometry)");}
+                        break;
                     case "MESH":
                         try { Add(DxfMeshProjection.Read(fields.Select(f=>(f.Code,f.Value)).ToArray(),S(8,"0"),S(5),Note)); }
                         catch(InvalidDataException) { Skip("MESH (invalid topology)"); }
@@ -427,7 +454,9 @@ internal static class DxfReader
                     case "SECTION": case "ENDSEC": break;
                     default: doc.Skipped[p.Value] = doc.Skipped.GetValueOrDefault(p.Value) + 1; break;
                 }
-                if (curves.Count > 0) Add(new DxfEntity(p.Value,S(8,"0"),S(5),curves){FillContours=fill,Text=text,IsApproximate=p.Value is "SPLINE" or "TEXT" or "ATTDEF" or "ATTRIB"});
+                if (curves.Count > 0) Add(new DxfEntity(p.Value,S(8,"0"),S(5),curves){FillContours=fill,Text=text,
+                    RenderDots=p.Value=="3DSOLID"?curves.Where(c=>c.Start==c.End).Select(c=>c.Start).Distinct().ToArray():[],
+                    IsApproximate=p.Value is "SPLINE" or "TEXT" or "ATTDEF" or "ATTRIB"});
 
                 matrix=originalMatrix;
             }
