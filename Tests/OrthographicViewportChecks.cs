@@ -85,7 +85,7 @@ public sealed class OrthographicViewportChecks
     {
         var doc=DxfReader.Load(Path.Combine(AppContext.BaseDirectory,"Fixtures","Public","api-cw750-details.dxf"));
         var window=doc.Layouts.Single(l=>l.Name=="Sheet 4").Viewports.Single(v=>v.Handle=="786B");
-        Assert.True(window.IsOrthographic3D);Assert.NotEmpty(window.ProjectedEntities!);Assert.False(doc.Skipped.ContainsKey("VIEWPORT (3D view)"));
+        Assert.True(window.IsOrthographic3D);Assert.NotEmpty(window.ProjectedEntities!);Assert.Empty(doc.Skipped);Assert.Equal(3,window.ProjectedEntities!.Count(e=>e.Kind=="3DSOLID"));
         var point=window.ProjectPoint3D!(new(0,0,1));Near(new(0,2/Math.Sqrt(6)),point);
         TestSupport.Near(3.393114570734088/6.786228175805926,window.ModelToPaper.M11);TestSupport.Near(3.393114570734088/6.786228175805926,window.ModelToPaper.M22);
     });

@@ -256,7 +256,7 @@ internal static class DxfReader
                 if(record.Kind is "HATCH" or "SOLID" or "TEXT" or "ATTDEF" or "ATTRIB" or "CIRCLE" or "ARC" or "LWPOLYLINE" && N(230,1)<0)
                 {var mirror=new System.Windows.Media.Matrix(-1,0,0,1,0,0);mirror.Append(matrix);matrix=mirror;recordZSign=-1;}
                 var curves = new List<Curve>();
-                List<Point[]> fill=[];string? text=null;
+                List<Point[]> fill=[];string? text=null;bool solidApproximate=false;
                 switch (p.Value)
                 {
                     case "SPLINE":
@@ -312,7 +312,15 @@ internal static class DxfReader
                         {
                             bool hasBinary=solidData.TryGetValue(S(5),out var binary);
                             if(hasBinary&&binary==null)throw new InvalidDataException("Duplicate solid payloads.");
-                            curves=DxfSolidProjection.Read(fields.Select(f=>(f.Code,f.Value)).ToArray(),binary);
+                            var solidFields=fields.Select(f=>(f.Code,f.Value)).ToArray();var sourceLayer=S(8,"0");var sourceHandle=S(5);
+                            curves=DxfSolidProjection.Read(solidFields,binary,out solidApproximate);
+                            sourceProjector=projection=>
+                            {
+                                var boundary=DxfSolidProjection.ReadProjected(solidFields,binary,projection,out var approximate);
+                                return new DxfEntity("3DSOLID",sourceLayer,sourceHandle,boundary)
+                                {IsApproximate=approximate,RenderDots=boundary.Where(c=>c.Start==c.End).Select(c=>c.Start).Distinct().ToArray()};
+                            };
+                            if(solidApproximate)Note("3DSOLID projected ellipse edges approximated within 0.0001 drawing units before INSERT scaling");
                             Note("3DSOLID shown as XY boundary wireframe; distances are projected, not 3D");
                         }
                         catch(NotSupportedException ex){Skip(ex.Message);}
@@ -501,7 +509,7 @@ internal static class DxfReader
                 }
                 if (curves.Count > 0) Add(new DxfEntity(p.Value,S(8,"0"),S(5),curves){FillContours=fill,Text=text,
                     RenderDots=p.Value=="3DSOLID"?curves.Where(c=>c.Start==c.End).Select(c=>c.Start).Distinct().ToArray():[],
-                    Projection3D=sourceProjector,IsApproximate=p.Value is "SPLINE" or "TEXT" or "ATTDEF" or "ATTRIB"});
+                    Projection3D=sourceProjector,IsApproximate=solidApproximate || p.Value is "SPLINE" or "TEXT" or "ATTDEF" or "ATTRIB"});
 
                 matrix=originalMatrix;
             }
