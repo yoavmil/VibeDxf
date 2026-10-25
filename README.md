@@ -28,6 +28,8 @@ I use VS2026. The build and run are straightforward.
 
 Reads ASCII DXF LINE, RAY, XLINE, ARC, CIRCLE, LWPOLYLINE and legacy 2D POLYLINE entities, including curved bulge segments, plus control-point SPLINE curves, POINT markers, filled SOLID faces, single-line TEXT, multiline MTEXT and HATCH areas. Blocks and INSERTs are expanded with nested placement, rotation, scaling, mirroring and rectangular arrays. Click an individual block child to select or measure it. Entity type, layer and instance handle path are kept.
 
+Legacy 3D POLYLINE, polygon meshes and polyface meshes are shown as XY wireframes. Polygon grids and polyface face indices determine the edges; negative polyface indices hide the corresponding edges. Z coordinates are validated but discarded, so picking, midpoint snaps and distances use the projected XY edges, not 3D lengths or face interiors. An edge parallel to Z becomes a point marker. Fitted/smoothed 3D curves or surfaces and malformed topology are skipped with a warning.
+
 Text uses an Arial font substitute and supports placement, rotation, width, oblique angle, mirroring and alignment. Original SHX/custom font styles are not reproduced. Text and splines use load-time outline approximations; nonuniformly scaled circular curves become approximate ellipses. Their measurements are marked ≈. Solid distances include the filled interior; point markers measure from their exact coordinate. Rays and construction lines (XLINE) are drawn to the window edge at every zoom and measured exactly along their full length; fitting the drawing uses only their base points. Rays/xlines with an out-of-plane direction are skipped.
 
 MTEXT uses WPF’s text layout engine and supports paragraph breaks, reference-width wrapping at word boundaries (long words may overflow), all nine attachment points, rotation/direction vectors, inline height/width/tracking/oblique changes, bold/italic font flags, underline/overline/strike-through, and stacked fractions. Advanced paragraph indentation/alignment is simplified with a warning. Columns, vertical flow and general 3D text orientation are not supported. Background masks/frames are omitted with a warning.
@@ -52,7 +54,7 @@ Layers start as the drawing saved them: layers that are off or frozen are hidden
 - show or hide annotation types: dimensions, leaders, multileaders, text, hatches and viewport frames;
 - switch the drawing to monochrome.
 
-When saved-off layers hide content, the panel opens by itself with a **Show all** button. Hidden items can't be selected or measured. Layers frozen in a single viewport are hidden only in that viewport. Linetypes (dashes) and lineweights are not applied yet.
+When saved-off layers hide content, the panel opens by itself with a **Show all** button. Hidden items are excluded from interactive picking and measurement; document API queries can still measure hidden entities. Layers frozen in a single viewport are hidden only in that viewport. Linetypes (dashes) and lineweights are not applied yet.
 
 ### Model and layout
 
