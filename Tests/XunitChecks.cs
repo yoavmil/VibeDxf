@@ -60,7 +60,7 @@ public sealed class XunitChecks(ITestOutputHelper output)
  });
 
  [Theory]
- [InlineData("api-cw750-details.dxf",4313,0,"3DSOLID (curved ACIS edges)=3,VIEWPORT (3D view)=1","Sheet 1:63/2;Sheet 2:73/1;Sheet 3:74/2;Sheet 4:62/2")]
+ [InlineData("api-cw750-details.dxf",4316,0,"VIEWPORT (3D view)=1","Sheet 1:63/2;Sheet 2:73/1;Sheet 3:74/2;Sheet 4:62/2")]
  [InlineData("uncommon.dxf",151,1,"POLYFACE (no visible edges)=1","")]
  public void PublicDrawingAndGpuUpload(string file,int expectedEntities,int expectedSplines,string expectedSkipped,string expectedLayouts) => TestSupport.Run($"Public drawing: {file}",()=>
  {

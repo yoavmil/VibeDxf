@@ -121,7 +121,7 @@ public sealed class SolidProjectionChecks
             "pointer"=>TriangleSat.Replace("$11 0 $12 5","$999999 0 $12 5"),
             "nonfinite"=>TriangleSat.Replace("3 0 4 #","NaN 0 4 #"),
             "truncated"=>TriangleSat.Replace("End-of-ACIS-data",""),
-            "curve"=>TriangleSat.Replace("straight-curve","ellipse-curve"),
+            "curve"=>TriangleSat.Replace("straight-curve","intcurve-curve"),
             "topology"=>TriangleSat.Replace("$-1 $1 $-1 $21 #","$-1 $8 $-1 $21 #"),
             "record-count"=>TriangleSat.Replace("700 0 1 0","700 999999999 1 0"),
             "body-count"=>TriangleSat.Replace("700 0 1 0","700 0 2 0"),
