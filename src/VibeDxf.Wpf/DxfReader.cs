@@ -216,7 +216,7 @@ internal static class DxfReader
             {
                 if(doc.Entities.Count+doc.Layouts.Sum(l=>l.Entities.Count)>=1000000)throw new InvalidDataException("Expanded drawing exceeds one million entities.");
                 var layer=entity.Layer=="0"?inheritedLayer:entity.Layer;
-                        try
+                try
                 {
                     entity.ColorSource=sourceOverride??colorSource;
                     var placement=matrix;var placementZScale=zScale*recordZSign;var placementZOffset=zOffset;var elevation=recordElevation;var name=path+entity.Handle;var resolved=colorOverride??color;

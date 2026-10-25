@@ -109,6 +109,11 @@ public sealed class OrthographicViewportChecks
             view.SetLayerVisible(0,false);Pump();var hidden=VisualReport.Capture(renderer,"Orthographic geometry respects live layer visibility",()=>Call(view,"RenderNow"));
             Assert.False(hidden.Near((int)(pixel.X*hidden.Width/view.ActualWidth),(int)(pixel.Y*hidden.Height/view.ActualHeight),Light));
             view.ShowAll();view.ActiveLayout=-1;view.ActiveLayout=0;Pump();Assert.Same(buffer,Field(renderer,"lineBuffer"));
+            using var api=new DxfView();LibraryApiChecks.Await(api.SetDocumentAsync(doc));api.ActiveLayout=doc.Layouts[0].Id;
+            var frameId=Window(doc).FrameEntityId;
+            Assert.Throws<NotSupportedException>(()=>api.WorldToScreen(new(0,2),frameId));
+            Assert.Throws<NotSupportedException>(()=>api.ScreenToWorld(new(0,2),frameId));
+            Assert.Throws<NotSupportedException>(()=>api.Select(new(doc.Entities[0].Id),frameId));
         }
         finally{window.Close();Pump();}
     }));

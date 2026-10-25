@@ -121,6 +121,14 @@ public sealed class LayoutChecks
                 view.ActiveLayout=i;Pump();Assert.Equal(i,view.ActiveLayout);
                 VisualReport.Capture(renderer,$"{file} layout '{doc.Layouts[i].Name}' (paper space and viewports)",()=>view.GetType().GetMethod("RenderNow",flags)!.Invoke(view,null));
                 Assert.Same(lines,Field(renderer,"lineBuffer"));
+                foreach(var spatial in doc.Layouts[i].Viewports.Where(v=>v.IsOrthographic3D))
+                {
+                    var paper=spatial.Paper;var zoom=.9*Math.Min(view.ActualWidth/paper.Width,view.ActualHeight/paper.Height);
+                    view.Camera=(zoom,new Vector(view.ActualWidth/2-(paper.X+paper.Width/2)*zoom,view.ActualHeight/2+(paper.Y+paper.Height/2)*zoom));Pump();
+                    var projected=VisualReport.Capture(renderer,$"{file} orthographic viewport {spatial.Handle} close-up (actual XYZ and ACIS boundaries)",()=>view.GetType().GetMethod("RenderNow",flags)!.Invoke(view,null));
+                    Assert.True(projected.Pixels.Where((_,index)=>index%4!=3).Any(channel=>channel>120));
+                    Assert.Same(lines,Field(renderer,"lineBuffer"));
+                }
             }
         }
         finally{window.Close();Pump();}
