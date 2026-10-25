@@ -40,7 +40,10 @@ public sealed record DxfLayer(string Name, uint Color, bool OnInFile, bool Froze
     public bool VisibleInFile => OnInFile && !FrozenInFile;
 }
 
-/// <summary>A plan-view window mapping model coordinates onto a paper layout, linked to its generated frame entity.</summary>
+/// <summary>A source viewport window on a paper layout. Nonplan orthographic views contain display-only projected snapshots.</summary>
+/// <param name="Handle">Source VIEWPORT handle.</param>
+/// <param name="Paper">Rectangular paper-space clipping window.</param>
+/// <param name="ModelToPaper">Maps model XY for plan views, or prepared display-coordinate-system coordinates for nonplan orthographic views; it cannot map arbitrary XYZ using only XY.</param>
 public sealed record DxfViewportWindow(string Handle, Rect Paper, Matrix ModelToPaper)
 {
     private IReadOnlyList<int> frozenLayers = Array.Empty<int>();
@@ -49,6 +52,12 @@ public sealed record DxfViewportWindow(string Handle, Rect Paper, Matrix ModelTo
     /// <summary>Identity of the generated paper-space frame corresponding to this viewport window.</summary>
     public DxfEntityId FrameEntityId { get; internal set; }
     internal DxfEntity? FrameEntity { get; init; }
+    /// <summary>True for a nonplan orthographic view; its projected geometry is display-only.</summary>
+    public bool IsOrthographic3D { get; internal init; }
+    /// <summary>Whether model XY picking, snapping and coordinate conversion are supported through this window.</summary>
+    public bool IsInteractive => !IsOrthographic3D;
+    internal Func<System.Windows.Media.Media3D.Point3D,Point>? ProjectPoint3D { get; init; }
+    internal IReadOnlyList<DxfEntity>? ProjectedEntities { get; set; }
 }
 
 /// <summary>A read-only paper sheet containing its own entities and model viewport definitions.</summary>

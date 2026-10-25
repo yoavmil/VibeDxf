@@ -8,7 +8,7 @@ namespace VibeDxf.Wpf;
 internal static class DxfMeshProjection
 {
     private const int VertexLimit = 1_000_000, EdgeLimit = 1_000_000, FaceItemLimit = 4_000_000;
-    internal static DxfEntity Read(IReadOnlyList<(int Code, string Value)> fields, string layer, string handle, Action<string> warn)
+    internal static DxfEntity Read(IReadOnlyList<(int Code, string Value)> fields, string layer, string handle, Action<string> warn,Func<System.Windows.Media.Media3D.Point3D,Point>? project=null)
     {
         int end = fields.Count;
         for (int i = 0; i < fields.Count; i++)
@@ -70,7 +70,8 @@ internal static class DxfMeshProjection
         foreach (var edge in edges)
         {
             LoadingContext.Check();
-            var a = vertices[edge.A]; var b = vertices[edge.B];
+            Point Map(int index)=>project?.Invoke(new(vertices[index].X,vertices[index].Y,elevations[index]))??vertices[index];
+            var a = Map(edge.A); var b = Map(edge.B);
             curves.Add(Curve.Line(a, b));
             if (a == b && elevations[edge.A] != elevations[edge.B]) dots.Add(a);
         }

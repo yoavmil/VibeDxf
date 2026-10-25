@@ -10,7 +10,7 @@ internal sealed class DxfPolylineProjection
 {
     private const int Limit = 1_000_000;
     private readonly int flags, m, n;
-    private readonly List<Point> points = [];
+    private readonly List<System.Windows.Media.Media3D.Point3D> points = [];
     private readonly List<int[]> faces = [];
     internal string Description => (flags & 64) != 0 ? "POLYFACE" : (flags & 16) != 0 ? "POLYGON MESH" : "3D POLYLINE";
 
@@ -55,13 +55,14 @@ internal sealed class DxfPolylineProjection
         }
         else if ((vertexFlags & (64 | 128)) != 0) throw new InvalidDataException("3D polyline vertex flags");
         double x = Coordinate(fields, 10), y = Coordinate(fields, 20);
-        _ = Coordinate(fields, 30, required: false); // Validate Z even though the projection discards it.
-        points.Add(new(x, y));
+        double z = Coordinate(fields, 30, required: false);
+        points.Add(new(x, y,z));
     }
 
-    internal DxfEntity Finish(string layer, string handle)
+    internal DxfEntity Finish(string layer, string handle, Func<System.Windows.Media.Media3D.Point3D,Point>? project=null)
     {
         LoadingContext.Check();
+        project??=p=>new(p.X,p.Y);
         var curves = new List<Curve>(); var dots = new HashSet<Point>();
         var emitted = new HashSet<(int A, int B)>();
         void Edge(int a, int b)
@@ -70,8 +71,8 @@ internal sealed class DxfPolylineProjection
             if (a < 0 || a >= points.Count || b < 0 || b >= points.Count) throw new InvalidDataException("polyface vertex index out of range");
             if (a == b || !emitted.Add((Math.Min(a, b), Math.Max(a, b)))) return;
             if (curves.Count >= Limit) throw new InvalidDataException("projected edge limit");
-            curves.Add(Curve.Line(points[a], points[b]));
-            if (points[a] == points[b]) dots.Add(points[a]);
+            var pa=project(points[a]);var pb=project(points[b]);curves.Add(Curve.Line(pa,pb));
+            if (pa == pb) dots.Add(pa);
         }
         if ((flags & 64) != 0)
         {
