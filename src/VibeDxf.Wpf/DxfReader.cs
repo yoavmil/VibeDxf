@@ -180,6 +180,7 @@ internal static class DxfReader
         void Process(List<Record> records,System.Windows.Media.Matrix matrix,string inheritedLayer,string path,HashSet<string> stack,EntityCategory? category=null,uint? blockColor=null)
         {
             List<(Point P,double Bulge)>? vertices=null;
+            DxfPolylineProjection? projectedPolyline=null; string? projectedPolylineError=null;
             string polyLayer="0",polyHandle="";bool polyClosed=false;uint polyColor=DxfColors.White;
             uint color=DxfColors.White;
             DxfColorSource colorSource = new(), polyColorSource = new();
@@ -196,6 +197,8 @@ internal static class DxfReader
                 if(entitiesPass&&stack.Count==0&&record.Kind is not ("VERTEX" or "SEQEND"))target=record.N(67)!=0?active:null;
                 colorSource=new(Int(record,62),Int(record,420));
                 var p=(Value:record.Kind,Code:0);var fields=record.Fields;
+                if(projectedPolyline!=null && record.Kind is not ("VERTEX" or "SEQEND"))
+                {Skip(projectedPolyline.Description+" (missing SEQEND)");projectedPolyline=null;projectedPolylineError=null;}
                 string S(int c,string fallback="")=>record.S(c,fallback);
                 double N(int c,double fallback=0)=>record.N(c,fallback);
                 Point P(int x,int y)=>new(N(x),N(y));
@@ -384,10 +387,36 @@ internal static class DxfReader
                         if (has) vs.Add((new Point(x, y), bulge));
                         curves = Polyline(vs, ((int)N(70) & 1) != 0); break;
                     case "POLYLINE":
-                        if (((int)N(70) & (8 | 16 | 64)) != 0) { doc.Skipped["3D POLYLINE"] = doc.Skipped.GetValueOrDefault("3D POLYLINE") + 1; vertices = null; break; }
-                        vertices = []; polyLayer = S(8, "0"); polyHandle = S(5); polyColor = color; polyColorSource=colorSource; polyClosed = ((int)N(70) & 1) != 0; break;
-                    case "VERTEX": vertices?.Add((P(10, 20), N(42))); break;
+                        vertices=null; projectedPolyline=null; projectedPolylineError=null;
+                        polyLayer=S(8,"0"); polyHandle=S(5); polyColor=color; polyColorSource=colorSource;
+                        if (((int)N(70) & (8 | 16 | 64)) != 0)
+                        {
+                            try { projectedPolyline=new(fields.Select(f=>(f.Code,f.Value)).ToArray()); }
+                            catch(NotSupportedException ex){Skip(ex.Message);}
+                            catch(InvalidDataException){Skip("POLYLINE (invalid 3D header)");}
+                        }
+                        else { vertices=[];polyClosed=((int)N(70)&1)!=0; }
+                        break;
+                    case "VERTEX":
+                        if(projectedPolyline!=null && projectedPolylineError==null)
+                        {
+                            try { projectedPolyline.AddVertex(fields.Select(f=>(f.Code,f.Value)).ToArray()); }
+                            catch(InvalidDataException ex){projectedPolylineError=ex.Message;}
+                        }
+                        else vertices?.Add((P(10,20),N(42)));
+                        break;
                     case "SEQEND":
+                        if(projectedPolyline!=null)
+                        {
+                            try
+                            {
+                                if(projectedPolylineError!=null)throw new InvalidDataException(projectedPolylineError);
+                                Add(projectedPolyline.Finish(polyLayer,polyHandle),polyColor,polyColorSource);
+                                Note(projectedPolyline.Description+" displayed as XY wireframe projection; measurements ignore Z");
+                            }
+                            catch(InvalidDataException ex){Skip(projectedPolyline.Description+" ("+ex.Message+")");}
+                            projectedPolyline=null;projectedPolylineError=null;
+                        }
                         if (vertices != null)
                         {
                             var cs = Polyline(vertices, polyClosed);
@@ -402,6 +431,7 @@ internal static class DxfReader
 
                 matrix=originalMatrix;
             }
+            if(projectedPolyline!=null)Skip(projectedPolyline.Description+" (missing SEQEND)");
         }
         Process(entities,System.Windows.Media.Matrix.Identity,"0","",new(StringComparer.OrdinalIgnoreCase));
         entitiesPass=false;

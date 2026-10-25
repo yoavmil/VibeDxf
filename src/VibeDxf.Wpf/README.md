@@ -57,6 +57,8 @@ Measurement results include status, closest endpoints, Euclidean distance, signe
 
 ASCII DXF with supported planar LINE, ARC, CIRCLE, 2D polylines/bulges, SPLINE, RAY/XLINE, POINT, SOLID, TEXT/MTEXT, block inserts/arrays/attributes, solid/patterned HATCH, saved dimension blocks, leaders/multileaders and plan-view layout viewports. Unsupported records and supported approximations produce diagnostics; this is not a full CAD editor or complete DXF implementation.
 
+Legacy 3D POLYLINE, polygon meshes and polyface meshes support exact XY wireframe projection. Measurements and picking use projected visible edges; there is no 3D distance or filled-face containment. Negative polyface indices hide outgoing edges. Z-parallel edges become point markers. Fitted/smoothed legacy 3D curves/surfaces and malformed topology produce skips; projection diagnostics explicitly state that Z is ignored.
+
 Text uses Arial substitution rather than original SHX fonts, and text-outline distances are approximate. Spline approximation is bounded by 0.0001 drawing units per spline, aside from floating-point effects; extreme zoom may reveal chords. Nonuniformly transformed arcs may also be approximate. Gradient/dense hatch patterns, general 3D/OCS geometry, standalone ellipses, DWG/binary DXF, external references, dynamic blocks, original linetypes/lineweights and some text layouts remain unsupported. No unit conversion is applied.
 
 MESH entities expose the level-0 face/edge wireframe projected into XY; projected vertical edges also have point markers. Measurement is to projected edges, not a filled surface or a 3D distance. Subdivision smoothing uses the control cage with an approximation flag and rendering warning; per-face appearance overrides are not displayed.

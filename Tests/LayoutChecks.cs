@@ -98,7 +98,7 @@ public sealed class LayoutChecks
     {
         // uncommon.dxf declares Layout1 (a single viewport onto model space) and an empty Layout2.
         var doc=DxfReader.Load(Path.Combine(AppContext.BaseDirectory,"Fixtures","Public","uncommon.dxf"));
-        Assert.Empty(doc.Layouts);Assert.Equal(149,doc.Entities.Count);
+        Assert.Empty(doc.Layouts);Assert.Equal(150,doc.Entities.Count);
     });
 
     [Theory]
