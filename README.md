@@ -44,6 +44,8 @@ Block attributes (ATTRIB) show their values, for example title-block fields and 
 
 Multileaders (MULTILEADER) draw their straight leader lines, landing doglegs, closed filled arrowheads and MTEXT content, and are display-only like dimensions. Spline leaders are drawn straight, custom arrowheads as closed filled arrows, and block content is omitted; each case adds a rendering note.
 
+MESH entities are shown as their level-0 wireframe projected onto XY, including face boundaries and explicit edges. Edges parallel to Z become point markers. Picking and measurements use this projected wireframe and ignore Z; it is not a filled region or a true 3D distance representation. Subdivision smoothing is not evaluated: such meshes show their control cage, report a rendering note and mark measurements approximate. Per-face appearance overrides are omitted with a note.
+
 ### Layers and colors
 
 Drawings show their DXF colors: the layer color (BYLAYER), an entity's own color index or true color, and BYBLOCK colors inherited from block inserts. Index color 7 shows white on the dark background, and very dark colors are lightened just enough to stay visible. Display-only items are drawn dimmed so it's clear they can't be clicked: dimensions, leaders, multileaders and viewport frames.
