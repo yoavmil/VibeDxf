@@ -42,6 +42,14 @@ Block attributes (ATTRIB) show their values, for example title-block fields and 
 
 Multileaders (MULTILEADER) draw their straight leader lines, landing doglegs, closed filled arrowheads and MTEXT content, and are display-only like dimensions. Spline leaders are drawn straight, custom arrowheads as closed filled arrows, and block content is omitted; each case adds a rendering note.
 
+### Projected solid boundaries
+
+The projected-solid support below is an unreleased source addition; published NuGet version 0.2.0 and the existing installer do not include it.
+
+`3DSOLID` entities with supported straight-edged ACIS geometry are shown as XY boundary wireframes. The reader handles inline SAT data (including AutoCAD's text encoding) and SAB/ASM binary data stored in ACDSDATA, resolves actual edge/vertex/point topology, and applies the solid's 3D body transform before projection. Projected edges support picking, snapping and XY distance queries; edges collapsing to a point get a visible point marker. These are distances to the projected boundary, not true 3D or solid-interior distances. Hidden edges are not removed.
+
+This is a bounded boundary reader rather than a general CAD modelling kernel. Curved ACIS edges, patterned/wire/subshell topology, unknown encodings and invalid geometry are skipped with specific diagnostics; they are never replaced with straight endpoint chords or bounding boxes. The straight-edged solid in `uncommon.dxf` is supported, while the three curved-edge solids in `api-cw750-details.dxf` remain explicitly unsupported.
+
 ### Layers and colors
 
 Drawings show their DXF colors: the layer color (BYLAYER), an entity's own color index or true color, and BYBLOCK colors inherited from block inserts. Index color 7 shows white on the dark background, and very dark colors are lightened just enough to stay visible. Display-only items are drawn dimmed so it's clear they can't be clicked: dimensions, leaders, multileaders and viewport frames.

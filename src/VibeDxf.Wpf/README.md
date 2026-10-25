@@ -61,6 +61,10 @@ Text uses Arial substitution rather than original SHX fonts, and text-outline di
 
 Per-entity visibility, entity removal/editing, undo and writing/saving DXF files are not implemented. Visibility controls apply to layers/categories and respect per-viewport frozen layers. Source colors/saved layer flags remain unchanged by per-view settings.
 
+`3DSOLID` supports XY boundary wireframes for a bounded straight-edged ACIS SAT/SAB subset. Actual edge/vertex/point topology and each body's 3D transform are resolved before projection. These selectable/measurable edges have no filled region; distances and midpoint targets describe their projected XY boundaries, not 3D distances or solid interiors. Collapsed edges receive point markers. Curved ACIS edges and unsupported topology/encodings are skipped as whole entities with explicit diagnostics rather than fabricated endpoint chords. This is not a general ACIS kernel, hidden-line remover or surface tessellator.
+
+Projected-solid support is an unreleased source addition, not part of the published 0.2.0 package.
+
 ## Ownership and threading
 
 Access the control on its STA WPF dispatcher and await asynchronous calls; do not block its dispatcher with Wait/Result. A prepared document can be assigned to multiple viewers; each owns its camera, selection, visibility, native surface and GPU resources. New loads supersede old ones; cancellation/preparation/allocation failure retains the installed drawing. Individual font/driver calls are not interruptible. `ClearDocument` releases drawing state; unload releases devices and reload recreates them; `Dispose` permanently cancels work/releases resources and must run on the dispatcher before shutdown. Device-loss recovery is not guaranteed.
