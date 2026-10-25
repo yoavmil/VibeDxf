@@ -2,11 +2,12 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Windows;
+using System.Windows.Media.Media3D;
 
 namespace VibeDxf.Wpf;
 
-// A bounded ACIS boundary reader, not a solid modelling kernel. Only actual straight
-// edge topology is projected; unsupported curves never become endpoint chords.
+// A bounded ACIS boundary reader, not a solid modelling kernel. Actual straight and
+// elliptical edge topology is projected; unsupported curves never become endpoint chords.
 // Format references: Autodesk's 3DSOLID DXF reference and ezdxf's MIT-licensed
 // acis/{const,sab,sat,entities}.py and sections/acdsdata.py. No upstream code is embedded.
 internal static class DxfSolidProjection
@@ -20,6 +21,15 @@ internal static class DxfSolidProjection
 
     internal static List<Curve> Read(IReadOnlyList<(int Code, string Value)> fields,
         IReadOnlyList<(int Code, string Value)>? binaryFields)
+        => ReadProjected(fields, binaryFields, p => new Point(p.X,p.Y), out _);
+
+    internal static List<Curve> Read(IReadOnlyList<(int Code, string Value)> fields,
+        IReadOnlyList<(int Code, string Value)>? binaryFields, out bool approximate)
+        => ReadProjected(fields, binaryFields, p => new Point(p.X,p.Y), out approximate);
+
+    // The supplied projection must be affine. Body placement is applied in full XYZ first.
+    internal static List<Curve> ReadProjected(IReadOnlyList<(int Code, string Value)> fields,
+        IReadOnlyList<(int Code, string Value)>? binaryFields, Func<Point3D,Point> projection, out bool approximate)
     {
         List<Node> nodes;
         bool binary;
@@ -62,7 +72,7 @@ internal static class DxfSolidProjection
             if (lines.Count == 0) throw Unsupported("missing ACIS geometry");
             nodes = ReadSat(lines.Select(s=>s.ToString()).ToList()); binary = false;
         }
-        return Project(nodes, binary);
+        return Project(nodes, binary, projection, out approximate);
     }
 
     private static List<Node> ReadSab(byte[] bytes)
@@ -229,8 +239,9 @@ internal static class DxfSolidProjection
         return new(Real(At(point, 1)), Real(At(point, 2)), Real(At(point, 3)));
     }
 
-    private static List<Curve> Project(List<Node> nodes, bool binary)
+    private static List<Curve> Project(List<Node> nodes, bool binary, Func<Point3D,Point> projection, out bool approximate)
     {
+        approximate = false;
         var output = new List<Curve>(); var segments = new HashSet<(Point, Point)>(); int work = 0;
         var bodies = nodes.Select((n, i) => (Node: n, Index: i)).Where(p => p.Node.Name == "body").ToArray();
         if (bodies.Length == 0) throw Invalid();
@@ -256,7 +267,9 @@ internal static class DxfSolidProjection
             {
                 double x = matrix == null ? p.X : p.X * matrix[0] + p.Y * matrix[3] + p.Z * matrix[6] + matrix[9];
                 double y = matrix == null ? p.Y : p.X * matrix[1] + p.Y * matrix[4] + p.Z * matrix[7] + matrix[10];
-                return new(Finite(x), Finite(y));
+                double z = matrix == null ? p.Z : p.X * matrix[2] + p.Y * matrix[5] + p.Z * matrix[8] + matrix[11];
+                var point = projection(new(Finite(x),Finite(y),Finite(z)));
+                return new(Finite(point.X),Finite(point.Y));
             }
             var pending = new Stack<int>(); pending.Push(body.Index); var seen = new HashSet<int>();
             while (pending.Count != 0)
@@ -276,7 +289,7 @@ internal static class DxfSolidProjection
                     if(pointer<0||pointer>=nodes.Count||
                         !(kind=="surface"?nodes[pointer].Name.EndsWith("-surface",StringComparison.Ordinal):nodes[pointer].Name==kind))throw Invalid();
                 }
-                if(node.Name is "body" or "lump" or "shell" or "face" or "loop" or "coedge" or "edge" or "vertex" or "point" or "straight-curve")
+                if(node.Name is "body" or "lump" or "shell" or "face" or "loop" or "coedge" or "edge" or "vertex" or "point" or "straight-curve" or "ellipse-curve")
                     if(Ptr(node,0)!=-1)throw Unsupported("patterned ACIS topology");
                 switch(node.Name)
                 {
@@ -293,36 +306,82 @@ internal static class DxfSolidProjection
                     if (Ptr(node, 0) != -1) throw Unsupported("patterned ACIS edge");
                     int curvePointer = Ptr(node, 6);
                     if (curvePointer < 0 || curvePointer >= nodes.Count) throw Invalid();
-                    if (nodes[curvePointer].Name != "straight-curve") throw Unsupported("curved ACIS edges");
                     Link(5,"coedge",false);
                     V3 start=Position(nodes,Ptr(node,1),binary),end=Position(nodes,Ptr(node,3),binary);
                     var underlying=nodes[curvePointer];
-                    V3 origin,direction;
-                    if(binary)
+                    if(Ptr(underlying,0)!=-1)throw Unsupported("patterned ACIS curve");
+                    V3 VectorAt(int index) => binary
+                        ? At(underlying,index).Value is V3 v ? v : throw Invalid()
+                        : new(Real(At(underlying,index)),Real(At(underlying,index+1)),Real(At(underlying,index+2)));
+                    void Matches(V3 vertex,V3 expected)
                     {
-                        origin=At(underlying,1).Value is V3 o?o:throw Invalid();
-                        direction=At(underlying,2).Value is V3 d?d:throw Invalid();
-                    }
-                    else
-                    {
-                        origin=new(Real(At(underlying,1)),Real(At(underlying,2)),Real(At(underlying,3)));
-                        direction=new(Real(At(underlying,4)),Real(At(underlying,5)),Real(At(underlying,6)));
-                    }
-                    if(direction==default)throw Invalid();
-                    void Matches(V3 vertex,double parameter)
-                    {
-                        var expected=new V3(Finite(origin.X+parameter*direction.X),Finite(origin.Y+parameter*direction.Y),Finite(origin.Z+parameter*direction.Z));
                         double scale=1+Math.Max(Math.Max(Math.Abs(vertex.X),Math.Abs(vertex.Y)),Math.Abs(vertex.Z));
                         if(Math.Abs(vertex.X-expected.X)>1e-7*scale||Math.Abs(vertex.Y-expected.Y)>1e-7*scale||Math.Abs(vertex.Z-expected.Z)>1e-7*scale)throw Invalid();
                     }
-                    Matches(start,Real(At(node,2)));Matches(end,Real(At(node,4)));
-                    Point a = XY(start), b = XY(end);
-                    if (a.X > b.X || (a.X == b.X && a.Y > b.Y)) (a, b) = (b, a);
-                    if (segments.Add((a, b)))
+                    void Append(Curve curve)
                     {
                         if(output.Count==MaxRecords)throw Unsupported("projected edge limit");
-                        output.Add(Curve.Line(a, b));
+                        if(curve.IsLine)
+                        {
+                            Point a=curve.Start,b=curve.End;
+                            if(a.X>b.X||(a.X==b.X&&a.Y>b.Y))(a,b)=(b,a);
+                            if(!segments.Add((a,b)))return;
+                        }
+                        output.Add(curve);
                     }
+                    double first=Real(At(node,2)),last=Real(At(node,4));
+                    if(underlying.Name=="straight-curve")
+                    {
+                        var origin=VectorAt(1);var direction=VectorAt(binary?2:4);
+                        if(direction==default)throw Invalid();
+                        V3 Evaluate(double t)=>new(Finite(origin.X+t*direction.X),Finite(origin.Y+t*direction.Y),Finite(origin.Z+t*direction.Z));
+                        Matches(start,Evaluate(first));Matches(end,Evaluate(last));
+                        Append(Curve.Line(XY(start),XY(end)));
+                    }
+                    else if(underlying.Name=="ellipse-curve")
+                    {
+                        var center=VectorAt(1);var normal=VectorAt(binary?2:4);var major=VectorAt(binary?3:7);
+                        double ratio=Real(At(underlying,binary?4:10));
+                        double length=Math.Sqrt(normal.X*normal.X+normal.Y*normal.Y+normal.Z*normal.Z);
+                        double radius=Math.Sqrt(major.X*major.X+major.Y*major.Y+major.Z*major.Z);
+                        if(!double.IsFinite(length)||!double.IsFinite(radius)||length<1e-15||radius<1e-15||ratio<=0||ratio>1)throw Invalid();
+                        normal=new(normal.X/length,normal.Y/length,normal.Z/length);
+                        if(Math.Abs(normal.X*major.X+normal.Y*major.Y+normal.Z*major.Z)>1e-9*radius)throw Invalid();
+                        var minor=new V3((normal.Y*major.Z-normal.Z*major.Y)*ratio,
+                            (normal.Z*major.X-normal.X*major.Z)*ratio,(normal.X*major.Y-normal.Y*major.X)*ratio);
+                        V3 Evaluate(double t)=>new(Finite(center.X+major.X*Math.Cos(t)+minor.X*Math.Sin(t)),
+                            Finite(center.Y+major.Y*Math.Cos(t)+minor.Y*Math.Sin(t)),Finite(center.Z+major.Z*Math.Cos(t)+minor.Z*Math.Sin(t)));
+                        double sweep=last-first;
+                        if(!double.IsFinite(sweep)||Math.Abs(sweep)<1e-14||Math.Abs(sweep)>Math.Tau+1e-9)throw Invalid();
+                        Matches(start,Evaluate(first));Matches(end,Evaluate(last));
+                        Point c=XY(center);
+                        Vector u=XY(new(center.X+major.X,center.Y+major.Y,center.Z+major.Z))-c;
+                        Vector v=XY(new(center.X+minor.X,center.Y+minor.Y,center.Z+minor.Z))-c;
+                        double scale=Math.Max(u.Length,v.Length);
+                        if(scale>0&&Math.Abs(u.Length-v.Length)<=1e-12&&Math.Abs(Vector.Multiply(u,v))<=1e-12*scale)
+                        {
+                            double orientation=Vector.CrossProduct(u,v)<0?-1:1;
+                            Append(Curve.Arc(c,u.Length,Math.Atan2(u.Y,u.X)+orientation*first,orientation*sweep));
+                        }
+                        else
+                        {
+                            // |q''(t)| <= |u|+|v|. Linear interpolation error <= M*h^2/8,
+                            // including edge-on ellipses and intervals whose endpoints coincide.
+                            double bound=u.Length+v.Length;
+                            double required=Math.Max(1,Math.Ceiling(Math.Abs(sweep)*Math.Sqrt(bound/(8*SplineGeometry.Tolerance))));
+                            if(!double.IsFinite(required)||required>MaxRecords-output.Count)throw Unsupported("projected edge limit");
+                            int count=(int)required;
+                            Point previous=XY(Evaluate(first));
+                            for(int j=1;j<=count;j++)
+                            {
+                                LoadingContext.Check();
+                                Point next=XY(Evaluate(first+sweep*j/count));
+                                Append(Curve.Line(previous,next));previous=next;
+                            }
+                            approximate=true;
+                        }
+                    }
+                    else throw Unsupported("unsupported ACIS curve: "+underlying.Name);
                 }
                 foreach (var token in node.Data)
                     if (token.Kind == 12)
@@ -333,7 +392,7 @@ internal static class DxfSolidProjection
                     }
             }
         }
-        if (output.Count == 0) throw Unsupported("no straight boundary edges");
+        if (output.Count == 0) throw Unsupported("no boundary edges");
         return output;
     }
 }
