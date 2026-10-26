@@ -2,7 +2,7 @@
 
 One Windows/WPF library for embedding a 2D DXF viewer and querying drawing geometry, including prepared text outlines. MIT licensed.
 
-**Stable release:** `0.2.0`. Requires Windows 10 or later and the .NET 10 Desktop Runtime. Build hosts target `net10.0-windows` with `UseWPF=true`. The package supplies its Vortice 3.8.3 dependencies transitively. This is not a cross-platform or DWG library.
+**Stable release:** `0.3.0`. Requires Windows 10 or later and the .NET 10 Desktop Runtime. Build hosts target `net10.0-windows` with `UseWPF=true`. The package supplies its Vortice 3.8.3 dependencies transitively. This is not a cross-platform or DWG library.
 
 ## Embed the viewer
 
@@ -55,7 +55,7 @@ Measurement results include status, closest endpoints, Euclidean distance, signe
 
 ## Supported drawing scope
 
-The 3D polyline, mesh, solid and saved camera projections below are unreleased source additions, not part of the published 0.2.0 package.
+Version 0.3.0 includes the 3D polyline, mesh, solid and saved camera projections described below.
 
 ASCII DXF with supported planar LINE, ARC, CIRCLE, 2D polylines/bulges, SPLINE, RAY/XLINE, POINT, SOLID, TEXT/MTEXT, block inserts/arrays/attributes, solid/patterned HATCH, saved dimension blocks, leaders/multileaders and plan-view layout viewports. Unsupported records and supported approximations produce diagnostics; this is not a full CAD editor or complete DXF implementation.
 

@@ -1,8 +1,8 @@
 # Independent NuGet consumers
 
-These examples use only `PackageReference` to **VibeDxf.Wpf 0.2.0**. They have no project reference, linked production source, reflection into internals or extra text-preparation provider.
+These examples use only `PackageReference` to **VibeDxf.Wpf 0.3.0**. They have no project reference, linked production source, reflection into internals or extra text-preparation provider.
 
-Requirements: Windows 10 or later and .NET 10 SDK with WPF support to build. Running requires .NET 10 Desktop Runtime. The package uses the existing Vortice packages transitively. [VibeDxf.Wpf 0.2.0 is available on NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.2.0).
+Requirements: Windows 10 or later and .NET 10 SDK with WPF support to build. Running requires .NET 10 Desktop Runtime. The package uses the existing Vortice packages transitively. [VibeDxf.Wpf 0.3.0 is available on NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.3.0).
 
 ## Use the published package
 

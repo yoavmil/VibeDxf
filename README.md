@@ -2,7 +2,7 @@
 
 <img src="src/Assets/VibeDxf.svg" width="80" height="80" alt="VibeDxf icon">
 
-**[Download the Windows x64 installer](https://github.com/yoavmil/VibeDxf/releases/download/v0.2.0/VibeDxf-Setup-0.2.0-win-x64.exe)**
+**[Download the Windows x64 installer](https://github.com/yoavmil/VibeDxf/releases/download/v0.3.0/VibeDxf-Setup-0.3.0-win-x64.exe)**
 
 ![VibeDxf measuring from a wavy spline underline to the center of the circle inside b](docs/images/VibeDxf-demo.png)
 
@@ -46,7 +46,7 @@ Multileaders (MULTILEADER) draw their straight leader lines, landing doglegs, cl
 
 ### Projected meshes and solid boundaries
 
-The 3D polyline, mesh, solid and saved camera projections described here are unreleased source additions; published NuGet version 0.2.0 and the existing installer do not include them.
+Version 0.3.0 adds the 3D polyline, mesh, solid and saved camera projections described here to both the NuGet library and desktop application.
 
 `3DSOLID` entities with supported straight, elliptical or explicit spline ACIS edge geometry are shown as XY boundary wireframes. The reader handles inline SAT data (including AutoCAD's text encoding) and SAB/ASM binary data stored in ACDSDATA, resolves actual edge/vertex/point topology, and applies the solid's 3D body transform before projection. Projected edges support picking, snapping and XY distance queries; edges collapsing to a point get a visible point marker. These are distances to the projected boundary, not true 3D or solid-interior distances. Hidden edges are not removed.
 
@@ -93,4 +93,4 @@ Units come from `$INSUNITS` when present; otherwise the footer says the drawing 
 
 ## Embedding and geometry API
 
-The MIT-licensed Windows/WPF library can be embedded in another application or used to traverse prepared drawing entities and query distances, including text outlines. Install [VibeDxf.Wpf 0.2.0 from NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.2.0). See the [package README](src/VibeDxf.Wpf/README.md), [independent examples](samples/PackageConsumers/README.md), and [MIT license](LICENSE).
+The MIT-licensed Windows/WPF library can be embedded in another application or used to traverse prepared drawing entities and query distances, including text outlines. Install [VibeDxf.Wpf 0.3.0 from NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.3.0). See the [package README](src/VibeDxf.Wpf/README.md), [independent examples](samples/PackageConsumers/README.md), and [MIT license](LICENSE).

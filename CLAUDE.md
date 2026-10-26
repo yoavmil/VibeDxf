@@ -101,3 +101,7 @@ The SAT 400 torus fixture has no topological edges. Its bounded analytic torus m
 ## ACIS intersection spline boundaries
 
 DxfAcisSpline.cs admits the explicit binary exact_int_cur 20900 profile and uses positive-weight rational Bezier hull bounds for XYZ flattening and saved parameter trims. DxfSolidProjection recognizes the exact tolerant topology names and validates endpoint differences using the admitted local tolerant vertex bounds without snapping the source curve. See docs/ACIS-SPLINE-BOUNDARIES.md. WashbasinSolidChecks includes numeric/rejection cases and the SHA-verified compressed public sink fixture, asserting all 13 solids plus actual XY/saved-camera GPU captures. This adds boundary coverage, not general ACIS face shading.
+
+## Release 0.3.0
+
+The user authorized NuGet and desktop publication on 2026-10-26. Current library/app versions are 0.3.0, superseding the historical 0.2.0 release state above. Publish through the existing independent annotated nuget/v0.3.0 and v0.3.0 workflows. Release notes document automatic saved camera restoration, additive camera APIs, display-only nonplan views and projected XY measurements. Geometry scope includes the merged 3D polyline, mesh, ACIS boundaries, torus and all 13 Waschbecken wireframes. Preserve old package versions and release tags; keep framework-dependent Windows x64 packaging and current dependency versions.

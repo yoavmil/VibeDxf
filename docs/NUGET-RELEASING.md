@@ -1,6 +1,24 @@
 # Publishing VibeDxf.Wpf
 
-## Stable 0.2.0
+## Stable 0.3.0
+
+Release 0.3.0 publishes the geometry and saved-camera work merged through PR #9.
+The user authorized both NuGet and desktop publication on 2026-10-26. Package and
+app versions are both 0.3.0 for this release, with independent `nuget/v0.3.0` and
+`v0.3.0` annotated tags and the existing validation/publication workflows.
+
+The release adds saved-camera metadata and selection APIs, model camera restoration,
+perspective/clipping/depth display, 3D polyline/mesh wireframes, ACIS straight,
+elliptical and explicit intersection-spline boundaries, tolerant topology and
+edge-free ring-torus display. Nonplan views are display-only; document measurements
+remain projected XY. Hosts can set ActiveModelView = null after document assignment
+to retain the original XY view. Existing public members are retained. General ACIS
+surface meshing, lighting, orbit navigation, editing and writing remain unsupported.
+
+Older release records and examples below are historical. Use the current project
+version and exact candidate's validation.json for new publication and verification.
+
+## Stable 0.2.0 (historical)
 
 Published and publicly verified. See [stable release results](NUGET-STABLE-0.2.0-RESULTS.md).
 
