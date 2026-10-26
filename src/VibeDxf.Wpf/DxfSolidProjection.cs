@@ -7,7 +7,8 @@ using System.Windows.Media.Media3D;
 namespace VibeDxf.Wpf;
 
 // A bounded ACIS boundary reader, not a solid modelling kernel. Actual straight and
-// elliptical edge topology is projected; unsupported curves never become endpoint chords.
+// elliptical edge topology is projected; edge-free torus faces have a separate display mesh.
+// Unsupported curves never become endpoint chords or invented boundary edges.
 // Format references: Autodesk's 3DSOLID DXF reference and ezdxf's MIT-licensed
 // acis/{const,sab,sat,entities}.py and sections/acdsdata.py. No upstream code is embedded.
 internal static class DxfSolidProjection
@@ -30,6 +31,27 @@ internal static class DxfSolidProjection
     // The supplied projection must be affine. Body placement is applied in full XYZ first.
     internal static List<Curve> ReadProjected(IReadOnlyList<(int Code, string Value)> fields,
         IReadOnlyList<(int Code, string Value)>? binaryFields, Func<Point3D,Point> projection, out bool approximate)
+    {
+        return ReadGeometry(fields,binaryFields,projection,out approximate,out _,out _);
+    }
+
+    internal static DxfEntity ReadEntity(IReadOnlyList<(int Code,string Value)> fields,
+        IReadOnlyList<(int Code,string Value)>? binaryFields,string layer,string handle,Func<Point3D,Point>? projection=null)
+    {
+        projection??=p=>new Point(p.X,p.Y);
+        var curves=ReadGeometry(fields,binaryFields,projection,out bool approximate,out var spatial,out var fill);
+        var bounds=curves.Aggregate(Rect.Empty,(r,c)=>{r.Union(c.Bounds);return r;});
+        foreach(var point in fill)bounds.Union(point);
+        return new DxfEntity("3DSOLID",layer,handle,curves)
+        {
+            IsApproximate=approximate,SpatialGeometry=spatial,FillTriangles=Array.AsReadOnly(fill.ToArray()),Bounds=bounds,
+            RenderDots=curves.Where(c=>c.Start==c.End).Select(c=>c.Start).Distinct().ToArray()
+        };
+    }
+
+    private static List<Curve> ReadGeometry(IReadOnlyList<(int Code,string Value)> fields,
+        IReadOnlyList<(int Code,string Value)>? binaryFields,Func<Point3D,Point> projection,out bool approximate,
+        out DxfSpatialGeometry spatial,out List<Point> fill)
     {
         List<Node> nodes;
         bool binary;
@@ -72,7 +94,7 @@ internal static class DxfSolidProjection
             if (lines.Count == 0) throw Unsupported("missing ACIS geometry");
             nodes = ReadSat(lines.Select(s=>s.ToString()).ToList()); binary = false;
         }
-        return Project(nodes, binary, projection, out approximate);
+        return Project(nodes, binary, projection, out approximate,out spatial,out fill);
     }
 
     private static List<Node> ReadSab(byte[] bytes)
@@ -148,7 +170,8 @@ internal static class DxfSolidProjection
         var header=lines[0].Split(' ',StringSplitOptions.RemoveEmptyEntries);
         if(header.Length!=4||!int.TryParse(header[0],out int version)||!int.TryParse(header[1],out int declaredRecords)||
             !int.TryParse(header[2],out int declaredBodies)||!int.TryParse(header[3],out _))throw Invalid();
-        if (version < 700 || version > 30000) throw Unsupported("ACIS version");
+        if ((version != 400 && version < 700) || version > 30000) throw Unsupported("ACIS version");
+        bool legacy=version==400;
         if(declaredRecords<0||declaredRecords>MaxRecords||declaredBodies<1||declaredBodies>MaxRecords)throw Invalid();
         string text = string.Join('\n', lines.Skip(3));
         var result = new List<Node>(); int pos = 0, tokens = 0; bool ended = false;
@@ -173,8 +196,14 @@ internal static class DxfSolidProjection
                 if (-(long)sequence != result.Count) throw Invalid();
                 name = Next();
             }
-            if (!Next().StartsWith('$') || !int.TryParse(Next(), out _)) throw Invalid();
+            string attribute=Next();
+            if(!attribute.StartsWith('$')||!int.TryParse(attribute.AsSpan(1),NumberStyles.Integer,CultureInfo.InvariantCulture,out int attributePointer)||attributePointer < -1)throw Invalid();
+            if(!legacy&&!int.TryParse(Next(),NumberStyles.Integer,CultureInfo.InvariantCulture,out _))throw Invalid();
             var data = new List<Token>();
+            // SAT 4 has the attribute pointer, but no persistence ID or pattern pointer.
+            // Normalize only the supported geometry classes; transforms and attribute records have different layouts.
+            if(legacy&&name is "body" or "lump" or "shell" or "face" or "loop" or "coedge" or "edge" or "vertex" or "point" or "straight-curve" or "ellipse-curve" or "plane-surface" or "torus-surface")
+                data.Add(new(12,-1));
             while (true)
             {
                 if (++tokens > MaxTokens) throw Unsupported("token limit");
@@ -239,9 +268,11 @@ internal static class DxfSolidProjection
         return new(Real(At(point, 1)), Real(At(point, 2)), Real(At(point, 3)));
     }
 
-    private static List<Curve> Project(List<Node> nodes, bool binary, Func<Point3D,Point> projection, out bool approximate)
+    private static List<Curve> Project(List<Node> nodes, bool binary, Func<Point3D,Point> projection, out bool approximate,out DxfSpatialGeometry spatial,out List<Point> fill)
     {
         approximate = false;
+        var spatialLines=new List<DxfSpatialLine>();var spatialTriangles=new List<DxfSpatialTriangle>();bool spatialApproximate=false;
+        fill=[];
         var output = new List<Curve>(); var segments = new HashSet<(Point, Point)>(); int work = 0;
         var bodies = nodes.Select((n, i) => (Node: n, Index: i)).Where(p => p.Node.Name == "body").ToArray();
         if (bodies.Length == 0) throw Invalid();
@@ -263,14 +294,14 @@ internal static class DxfSolidProjection
                 else throw Invalid();
                 if (matrix.Length != 12) throw Invalid();
             }
-            Point XY(V3 p)
+            Point3D XYZ(V3 p)
             {
                 double x = matrix == null ? p.X : p.X * matrix[0] + p.Y * matrix[3] + p.Z * matrix[6] + matrix[9];
                 double y = matrix == null ? p.Y : p.X * matrix[1] + p.Y * matrix[4] + p.Z * matrix[7] + matrix[10];
                 double z = matrix == null ? p.Z : p.X * matrix[2] + p.Y * matrix[5] + p.Z * matrix[8] + matrix[11];
-                var point = projection(new(Finite(x),Finite(y),Finite(z)));
-                return new(Finite(point.X),Finite(point.Y));
+                return new(Finite(x),Finite(y),Finite(z));
             }
+            Point XY(V3 p){var point=projection(XYZ(p));return new(Finite(point.X),Finite(point.Y));}
             var pending = new Stack<int>(); pending.Push(body.Index); var seen = new HashSet<int>();
             while (pending.Count != 0)
             {
@@ -296,7 +327,23 @@ internal static class DxfSolidProjection
                     case "body": Link(1,"lump",false);Link(2,"wire");Link(3,"transform");break;
                     case "lump": Link(1,"lump");Link(2,"shell",false);Link(3,"body",false);break;
                     case "shell": Link(1,"shell");Link(2,"subshell");Link(3,"face",false);Link(4,"wire");Link(5,"lump",false);break;
-                    case "face": Link(1,"face");Link(2,"loop",false);Link(3,"shell",false);Link(4,"subshell");Link(5,"surface",false);break;
+                    case "face":
+                        Link(1,"face");Link(2,"loop");Link(3,"shell",false);Link(4,"subshell");Link(5,"surface",false);
+                        if(Ptr(node,2)==-1)
+                        {
+                            var surface=nodes[Ptr(node,5)];
+                            if(surface.Name!="torus-surface")throw Unsupported("untrimmed ACIS surface: "+surface.Name);
+                            bool reversedFace=At(node,6).Value switch {"forward"=>false,"reversed"=>true,bool b=>b,_=>throw Invalid()};
+                            var mesh=Torus(surface,binary,XYZ,reversedFace);
+                            if(spatialTriangles.Count+mesh.Count>MaxRecords)throw Unsupported("surface triangle limit");
+                            spatialTriangles.AddRange(mesh);spatialApproximate=true;approximate=true;
+                            foreach(var triangle in mesh)
+                            {
+                                foreach(var vertex in new[]{triangle.A,triangle.B,triangle.C})
+                                {var point=projection(vertex);fill.Add(new(Finite(point.X),Finite(point.Y)));}
+                            }
+                        }
+                        break;
                     case "loop": Link(1,"loop");Link(2,"coedge",false);Link(3,"face",false);break;
                     case "coedge": Link(1,"coedge",false);Link(2,"coedge",false);Link(3,"coedge");Link(4,"edge",false);Link(6,"loop",false);break;
                     case "vertex": Link(1,"edge",false);Link(binary?3:2,"point",false);break;
@@ -337,6 +384,7 @@ internal static class DxfSolidProjection
                         V3 Evaluate(double t)=>new(Finite(origin.X+t*direction.X),Finite(origin.Y+t*direction.Y),Finite(origin.Z+t*direction.Z));
                         Matches(start,Evaluate(first));Matches(end,Evaluate(last));
                         Append(Curve.Line(XY(start),XY(end)));
+                        spatialLines.Add(new(XYZ(start),XYZ(end)));
                     }
                     else if(underlying.Name=="ellipse-curve")
                     {
@@ -354,6 +402,14 @@ internal static class DxfSolidProjection
                         double sweep=last-first;
                         if(!double.IsFinite(sweep)||Math.Abs(sweep)<1e-14||Math.Abs(sweep)>Math.Tau+1e-9)throw Invalid();
                         Matches(start,Evaluate(first));Matches(end,Evaluate(last));
+                        // Retain actual XYZ curve samples independently of the XY representation.
+                        var majorWorld=XYZ(new(center.X+major.X,center.Y+major.Y,center.Z+major.Z))-XYZ(center);
+                        var minorWorld=XYZ(new(center.X+minor.X,center.Y+minor.Y,center.Z+minor.Z))-XYZ(center);
+                        double spatialRequired=Math.Max(1,Math.Ceiling(Math.Abs(sweep)*Math.Sqrt((majorWorld.Length+minorWorld.Length)/(8*SplineGeometry.Tolerance))));
+                        if(!double.IsFinite(spatialRequired)||spatialRequired>MaxRecords-spatialLines.Count)throw Unsupported("spatial edge limit");
+                        int spatialCount=(int)spatialRequired;var spatialPrevious=XYZ(Evaluate(first));
+                        for(int j=1;j<=spatialCount;j++){LoadingContext.Check();var next=XYZ(Evaluate(first+sweep*j/spatialCount));spatialLines.Add(new(spatialPrevious,next));spatialPrevious=next;}
+                        spatialApproximate=true;
                         Point c=XY(center);
                         Vector u=XY(new(center.X+major.X,center.Y+major.Y,center.Z+major.Z))-c;
                         Vector v=XY(new(center.X+minor.X,center.Y+minor.Y,center.Z+minor.Z))-c;
@@ -392,7 +448,58 @@ internal static class DxfSolidProjection
                     }
             }
         }
-        if (output.Count == 0) throw Unsupported("no boundary edges");
+        if (output.Count == 0 && spatialTriangles.Count==0) throw Unsupported("no boundary edges");
+        spatial=new DxfSpatialGeometry(spatialLines,spatialTriangles,[],spatialApproximate);
+        return output;
+    }    // Full, untrimmed ring tori have no boundary edges at all. Their triangles are
+    // display geometry only: tessellation segments are not measurable ACIS edges.
+    private static List<DxfSpatialTriangle> Torus(Node surface,bool binary,Func<V3,Point3D> place,bool reversedFace)
+    {
+        if(Ptr(surface,0)!=-1)throw Unsupported("patterned ACIS torus");
+        V3 VectorAt(int index)=>binary?At(surface,index).Value is V3 v?v:throw Invalid():
+            new(Real(At(surface,index)),Real(At(surface,index+1)),Real(At(surface,index+2)));
+        var center=VectorAt(1);var axis=VectorAt(binary?2:4);var reference=VectorAt(binary?5:9);
+        double major=Real(At(surface,binary?3:7)),minor=Real(At(surface,binary?4:8));
+        var normal=new Vector3D(axis.X,axis.Y,axis.Z);var x=new Vector3D(reference.X,reference.Y,reference.Z);
+        if(!double.IsFinite(normal.Length)||!double.IsFinite(x.Length)||normal.Length<1e-15||x.Length<1e-15||!(major>minor&&minor>0))throw Invalid();
+        normal.Normalize();
+        if(Math.Abs(Vector3D.DotProduct(normal,x))>1e-9*x.Length)throw Invalid();
+        x.Normalize();var y=Vector3D.CrossProduct(normal,x);y.Normalize();
+        int sense=binary?6:12;var parameterSense=At(surface,sense).Value;
+        double sign=parameterSense switch {"forward_v"=>1,"reversed_v"=>-1,bool b=>b?-1:1,_=>throw Invalid()};
+        if(surface.Data.Length!=sense+5)throw Unsupported("torus parameter layout");
+        for(int i=sense+1;i<surface.Data.Length;i++)
+            if(!(At(surface,i).Value is string t&&t=="I")&&At(surface,i).Value is not bool)throw Unsupported("trimmed torus parameter domain");
+        V3 Local(double u,double v)
+        {
+            double radial=major+minor*Math.Cos(v),z=sign*minor*Math.Sin(v);
+            var d=x*(radial*Math.Cos(u))+y*(radial*Math.Sin(u))+normal*z;
+            return new(Finite(center.X+d.X),Finite(center.Y+d.Y),Finite(center.Z+d.Z));
+        }
+        var origin=place(center);
+        double Length(Vector3D v)=>(place(new(center.X+v.X,center.Y+v.Y,center.Z+v.Z))-origin).Length;
+        // Bound the separate u/v interpolation errors after body placement.
+        // This display mesh uses 0.02 drawing units before INSERT scaling.
+        const double tolerance=0.02;
+        double mu=(major+minor)*(Length(x)+Length(y)),mv=minor*(Length(x)+Length(y)+Length(normal));
+        double nu=Math.Max(12,Math.Ceiling(Math.Tau*Math.Sqrt(mu/(4*tolerance))));
+        double nv=Math.Max(12,Math.Ceiling(Math.Tau*Math.Sqrt(mv/(4*tolerance))));
+        if(!double.IsFinite(nu)||!double.IsFinite(nv)||2*nu*nv>MaxRecords)throw Unsupported("surface triangle limit");
+        int uCount=(int)nu,vCount=(int)nv;var output=new List<DxfSpatialTriangle>(2*uCount*vCount);
+        for(int i=0;i<uCount;i++)
+        {
+            LoadingContext.Check();
+            for(int j=0;j<vCount;j++)
+            {
+                var a=place(Local(Math.Tau*i/uCount,Math.Tau*j/vCount));
+                var b=place(Local(Math.Tau*(i+1)/uCount,Math.Tau*j/vCount));
+                var c=place(Local(Math.Tau*(i+1)/uCount,Math.Tau*(j+1)/vCount));
+                var d=place(Local(Math.Tau*i/uCount,Math.Tau*(j+1)/vCount));
+                if((sign<0)^reversedFace){output.Add(new(a,c,b));output.Add(new(a,d,c));}
+                else {output.Add(new(a,b,c));output.Add(new(a,c,d));}
+            }
+        }
         return output;
     }
+
 }

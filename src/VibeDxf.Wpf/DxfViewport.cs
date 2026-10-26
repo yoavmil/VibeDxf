@@ -466,7 +466,7 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
         MeasurementTarget? target = null; double nearest = tolerance;
         foreach (var entity in entities)
         {
-            if (entity.IsAnnotation || !IsEntityVisible(entity)) continue;
+            if (entity.IsAnnotation || entity.Curves.Count==0 || !IsEntityVisible(entity)) continue;
             if (viewport != null && viewport.FrozenLayers.Contains(LayerIndex(entity))) continue;
             var b = entity.Bounds; b.Inflate(nearest, nearest);
             // Ray and xline bounds hold only their base point, so they skip the box prefilter.

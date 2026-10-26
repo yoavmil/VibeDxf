@@ -56,6 +56,12 @@ This is a bounded boundary reader rather than a general CAD modelling kernel. In
 
 MESH entities are shown as their level-0 wireframe projected onto XY, including face boundaries and explicit edges. Edges parallel to Z become point markers. Picking and measurements use this projected wireframe and ignore Z; it is not a filled region or a true 3D distance representation. Subdivision smoothing is not evaluated: such meshes show their control cage, report a rendering note and mark measurements approximate. Per-face appearance overrides are omitted with a note.
 
+### Edge-free torus solids
+
+The reader also handles the SAT version 400 schema used by the public `torus_r2000.dxf` fixture. Unlike an edged solid, this file contains one full toroidal face with no loops or boundary edges. Complete, untrimmed ring-torus faces are tessellated from their actual center, axis, radii and body transform, with a 0.02 drawing-unit surface display bound before INSERT scaling. Their XYZ triangles are retained for camera views; the model XY view shows the projected surface and its hole.
+
+These edge-free surface entities are approximate and display-only: their `Curves` collection is empty, programmatic measurements return `NoGeometry`, and picking/midpoint snapping are disabled. Tessellation edges are never presented as exact ACIS topology. This does not add general ACIS surface meshing, trimmed-face meshing, spindle/horn tori or a general CAD kernel. Existing straight and elliptical boundary queries remain unchanged.
+
 ### Layers and colors
 
 Drawings show their DXF colors: the layer color (BYLAYER), an entity's own color index or true color, and BYBLOCK colors inherited from block inserts. Index color 7 shows white on the dark background, and very dark colors are lightened just enough to stay visible. Display-only items are drawn dimmed so it's clear they can't be clicked: dimensions, leaders, multileaders and viewport frames.

@@ -180,9 +180,16 @@ internal static class DxfPrimitives
                 approximate=true;
             }
         }
+        var projectedFill=entity.FillTriangles==null?null:Array.AsReadOnly(entity.FillTriangles.Select(matrix.Transform).ToArray());
+        var bounds=curves.Aggregate(Rect.Empty,(r,c)=>{r.Union(c.Bounds);return r;});
+        foreach(var point in projectedFill??[])bounds.Union(point);
+        if(bounds.IsEmpty&&!entity.Bounds.IsEmpty)bounds=Rect.Transform(entity.Bounds,matrix);
         return new DxfEntity(entity.Kind,layer,handle,curves)
         {
             FillContours=entity.FillContours.Select(p=>p.Select(matrix.Transform).ToArray()).ToList(),
+            FillTriangles=projectedFill,
+            Bounds=bounds,
+            SpatialGeometry=entity.SpatialGeometry?.Transform(matrix,1,0),
             RegionContours=entity.RegionContours?.Select(p=>p.Select(matrix.Transform).ToArray()).ToList(),
             RenderCurves=entity.RenderCurves?.Select(c=>Curve.Line(matrix.Transform(c.Start),matrix.Transform(c.End))).ToList(),
             RenderDots=entity.RenderDots.Select(matrix.Transform).ToList(),
