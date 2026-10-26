@@ -2,6 +2,8 @@
 
 ## Stable 0.3.0
 
+Published and publicly verified. See [release results](RELEASE-0.3.0-RESULTS.md).
+
 Release 0.3.0 publishes the geometry and saved-camera work merged through PR #9.
 The user authorized both NuGet and desktop publication on 2026-10-26. Package and
 app versions are both 0.3.0 for this release, with independent `nuget/v0.3.0` and

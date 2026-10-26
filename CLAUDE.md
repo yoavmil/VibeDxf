@@ -105,3 +105,5 @@ DxfAcisSpline.cs admits the explicit binary exact_int_cur 20900 profile and uses
 ## Release 0.3.0
 
 The user authorized NuGet and desktop publication on 2026-10-26. Current library/app versions are 0.3.0, superseding the historical 0.2.0 release state above. Publish through the existing independent annotated nuget/v0.3.0 and v0.3.0 workflows. Release notes document automatic saved camera restoration, additive camera APIs, display-only nonplan views and projected XY measurements. Geometry scope includes the merged 3D polyline, mesh, ACIS boundaries, torus and all 13 Waschbecken wireframes. Preserve old package versions and release tags; keep framework-dependent Windows x64 packaging and current dependency versions.
+
+Release 0.3.0 publication and public verification succeeded for NuGet and desktop. See docs/RELEASE-0.3.0-RESULTS.md for the immutable source commit/tags, workflow runs and published artifact checksums.
