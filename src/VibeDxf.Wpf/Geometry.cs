@@ -235,6 +235,7 @@ public sealed class DxfEntity
     /// <summary>Resolved source RGBA, before viewer theme adjustment.</summary>
     public uint Color { get; internal init; } = DxfColors.White;
     internal int Group { get; set; }
+
     internal Func<Func<System.Windows.Media.Media3D.Point3D,Point>,DxfEntity>? Projection3D { get; set; }
     internal DxfSpatialGeometry? SpatialGeometry { get; set; }
     internal DxfSpatialGeometry? DisplayGeometry3D { get; init; }

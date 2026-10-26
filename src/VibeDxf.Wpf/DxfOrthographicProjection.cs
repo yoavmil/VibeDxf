@@ -47,7 +47,7 @@ internal static class DxfOrthographicProjection
             LoadingContext.Check();
             var projected=entity.Projection3D?.Invoke(viewport.ProjectPoint3D!)??Planar(entity,viewport.ProjectPoint3D!,0);
             projected.Group=entity.Group;
-            count+=projected.Curves.Count+projected.RenderDots.Count+projected.FillContours.Sum(c=>c.Count);
+            count+=projected.Curves.Count+projected.RenderDots.Count+projected.FillContours.Sum(c=>c.Count)+(projected.FillTriangles?.Count??0);
             if(count>4_000_000)throw new InvalidDataException("Orthographic viewport projected geometry exceeds its limit.");
             if(projected.FillContours.Count>0)projected.FillTriangles=Array.AsReadOnly(DxfPrimitives.Triangulate(projected.FillContours).ToArray());
             output.Add(projected);
