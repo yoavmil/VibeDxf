@@ -85,6 +85,7 @@ public sealed class DxfView : Border, IDisposable
         Child = viewport;
         viewport.SelectionChanged += () => { if (!batching) PublishSelection(); };
         viewport.LayoutChanged += () => { if (!batching) PublishLayout(); };
+        viewport.ModelViewChanged += () => {if(!batching)ModelViewChanged?.Invoke(this,EventArgs.Empty);};
         viewport.VisibilityChanged += () => { if (!batching) PublishVisibility(); };
         viewport.RenderingFailed += ex => RenderingFailed?.Invoke(this, new(ex));
     }
@@ -110,6 +111,21 @@ public sealed class DxfView : Border, IDisposable
     public event EventHandler<DxfVisibilityChangedEventArgs>? VisibilityChanged;
     /// <summary>Reports native/device/rendering failure without opening a host dialog.</summary>
     public event EventHandler<DxfRenderingFailedEventArgs>? RenderingFailed;
+    /// <summary>Raised after the selected model camera changes.</summary>
+    public event EventHandler? ModelViewChanged;
+    /// <summary>Selected document camera, or null for the original XY view. Saved nonplan and perspective views are display-only.</summary>
+    public DxfModelViewId? ActiveModelView
+    {
+        get=>viewport.ActiveModelView>=0?Document?.ModelViews[viewport.ActiveModelView].Id:null;
+        set
+        {
+            VerifyUsable();
+            if(value is { } id&&(Document==null||id.DocumentId!=Document.DocumentId||id.Value<0||id.Value>=Document.ModelViews.Count))throw new ArgumentException("Camera must belong to the assigned document.",nameof(value));
+            viewport.ActiveModelView=value?.Value??-1;
+        }
+    }
+    /// <summary>Restores the current model camera saved by the file, if it is supported.</summary>
+    public void RestoreSavedModelView(){VerifyUsable();viewport.RestoreSavedModelView();}
 
     /// <summary>Dependency property for the first selection strategy.</summary>
     public static readonly DependencyProperty FirstMeasurementStrategyProperty = StrategyProperty(nameof(FirstMeasurementStrategy));
@@ -194,11 +210,11 @@ public sealed class DxfView : Border, IDisposable
             if (ReferenceEquals(Document, document)) return;
             var old = Document;
             batching = true;
-            try { viewport.SetDocument(document, () => SetValue(DocumentPropertyKey, document), token); }
+            try { viewport.SetDocument(document, () => SetValue(DocumentPropertyKey, document), token);viewport.RestoreSavedModelView(); }
             finally { batching = false; }
             RefreshSelection(); SyncLayout();
             DocumentChanged?.Invoke(this, new(old, document));
-            PublishSelection(); PublishLayout(); PublishVisibility();
+            PublishSelection(); PublishLayout(); PublishVisibility();ModelViewChanged?.Invoke(this,EventArgs.Empty);
         });
     }
     private void RefreshSelection()
@@ -241,7 +257,11 @@ public sealed class DxfView : Border, IDisposable
     }
     private DxfViewportWindow? Window(DxfEntityId? frameId)
     {
-        if (frameId == null) return null;
+        if (frameId == null)
+        {
+            if(!viewport.ModelViewInteractive)throw new NotSupportedException("This saved model camera is display-only; model XY anchors cannot represent its projection.");
+            return null;
+        }
         var window = Document?.Layouts.FirstOrDefault(l => l.Id == ActiveLayout)?.Viewports.FirstOrDefault(v => v.FrameEntityId == frameId)
             ?? throw new ArgumentException("Viewport must belong to the active layout.", nameof(frameId));
         if(!window.IsInteractive) throw new NotSupportedException("Nonplan orthographic viewports are display-only; model XY anchors cannot represent their projection.");

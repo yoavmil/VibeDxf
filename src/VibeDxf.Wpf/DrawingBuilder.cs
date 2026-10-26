@@ -13,6 +13,8 @@ internal sealed class LayoutBuilder(string name)
 }
 internal sealed class DrawingBuilder
 {
+    public List<DxfModelView> ModelViews { get; } = [];
+    public DxfModelView? DefaultModelView { get; set; }
     /// <summary>Model space. Paper-space records belong to <see cref="Layouts"/>.</summary>
     public List<DxfEntity> Entities { get; } = [];
     /// <summary>Paper layouts in tab order.</summary>

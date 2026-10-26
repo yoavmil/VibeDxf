@@ -11,8 +11,8 @@ using Xunit;
 public sealed class OrthographicViewportChecks
 {
     private const string Lines="0\nLINE\n5\nZ\n8\n0\n10\n0\n20\n0\n30\n0\n11\n0\n21\n0\n31\n4\n0\nLINE\n5\nELEV\n10\n0\n20\n0\n30\n1\n11\n4\n21\n0\n31\n1\n";
-    private static string Source(string model=Lines,string direction="0\n26\n-1\n36\n0",string flags="0",string extra="",string blocks="")=>
-        blocks+"0\nSECTION\n2\nENTITIES\n"+model+"0\nVIEWPORT\n5\nSHEET\n67\n1\n69\n1\n0\nVIEWPORT\n5\nISO\n67\n1\n69\n2\n68\n1\n10\n0\n20\n0\n40\n20\n41\n20\n45\n20\n16\n"+direction+"\n90\n"+flags+"\n"+extra+"0\nLINE\n5\nPAPER\n67\n1\n10\n-12\n20\n-12\n11\n12\n21\n-12\n0\nENDSEC\n0\nEOF\n";
+    private static string Source(string model=Lines,string direction="0\n26\n-1\n36\n0",string flags="0",string extra="",string blocks="",double viewHeight=20)=>
+        blocks+"0\nSECTION\n2\nENTITIES\n"+model+"0\nVIEWPORT\n5\nSHEET\n67\n1\n69\n1\n0\nVIEWPORT\n5\nISO\n67\n1\n69\n2\n68\n1\n10\n0\n20\n0\n40\n20\n41\n20\n45\n"+viewHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)+"\n16\n"+direction+"\n90\n"+flags+"\n"+extra+"0\nLINE\n5\nPAPER\n67\n1\n10\n-12\n20\n-12\n11\n12\n21\n-12\n0\nENDSEC\n0\nEOF\n";
     private static DxfDocument Load(string source){using var stream=new MemoryStream(Encoding.UTF8.GetBytes(source));return DxfReader.Load(stream);}
     private static DxfViewportWindow Window(DxfDocument doc)=>Assert.Single(Assert.Single(doc.Layouts).Viewports);
     private static void Near(Point expected,Point actual){TestSupport.Near(expected.X,actual.X,1e-8);TestSupport.Near(expected.Y,actual.Y,1e-8);}
@@ -45,7 +45,7 @@ public sealed class OrthographicViewportChecks
         var doc=Load(Source("0\nCIRCLE\n5\nC\n10\n0\n20\n0\n30\n7\n40\n3\n230\n-1\n"));
         Assert.All(Window(doc).ProjectedEntities!.Single().Curves,c=>TestSupport.Near(-7,c.Start.Y));
         string blocks="0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nB\n"+Lines+"0\nENDBLK\n0\nENDSEC\n";
-        doc=Load(Source("0\nINSERT\n5\nI\n2\nB\n30\n10\n43\n2\n230\n-1\n",blocks:blocks));
+        doc=Load(Source("0\nINSERT\n5\nI\n2\nB\n30\n10\n43\n2\n230\n-1\n",blocks:blocks,viewHeight:40));
         var z=Window(doc).ProjectedEntities!.Single(e=>e.Handle.EndsWith("/Z"));Near(new(0,-10),z.Curves[0].Start);Near(new(0,-18),z.Curves[0].End);
     });
     [Fact]
@@ -67,7 +67,7 @@ public sealed class OrthographicViewportChecks
     public void NestedInsertZ()=>TestSupport.Run("Orthographic nested INSERT Z scale, base point and placement",()=>
     {
         string blocks="0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nB\n30\n2\n"+Lines+"0\nENDBLK\n0\nBLOCK\n2\nA\n0\nINSERT\n5\nINNER\n2\nB\n30\n10\n43\n3\n0\nENDBLK\n0\nENDSEC\n";
-        var doc=Load(Source("0\nINSERT\n5\nOUTER\n2\nA\n30\n100\n43\n2\n",blocks:blocks));
+        var doc=Load(Source("0\nINSERT\n5\nOUTER\n2\nA\n30\n100\n43\n2\n",blocks:blocks,viewHeight:400));
         var z=Window(doc).ProjectedEntities!.Single(e=>e.Handle.EndsWith("/Z"));Near(new(0,108),z.Curves[0].Start);Near(new(0,132),z.Curves[0].End);
     });
     [Theory]
@@ -78,7 +78,9 @@ public sealed class OrthographicViewportChecks
     [InlineData("0","NaN\n26\n0\n36\n1","VIEWPORT (invalid view)")]
     public void ExplicitUnsupportedModes(string flags,string direction,string diagnostic)=>TestSupport.Run("Orthographic viewport explicit diagnostic: "+diagnostic+flags,()=>
     {
-        var doc=Load(Source(flags:flags,direction:direction));Assert.Empty(doc.Layouts.Single().Viewports);Assert.Equal(1,doc.Skipped[diagnostic]);
+        var doc=Load(Source(flags:flags,direction:direction));
+        if(flags!="0"){Assert.Single(doc.Layouts.Single().Viewports);Assert.Empty(doc.Skipped);Assert.False(doc.Layouts.Single().Viewports[0].IsInteractive);}
+        else {Assert.Empty(doc.Layouts.Single().Viewports);Assert.Equal(1,doc.Skipped[diagnostic]);}
     });
     [Fact]
     public void PublicIsometricViewport()=>TestSupport.Run("api-cw750 Sheet4 viewport786B uses source isometric direction and scale",()=>

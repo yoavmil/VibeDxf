@@ -44,6 +44,25 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     private readonly List<MeasurementTarget> selected = [];
     public DxfDocument? Document { get; private set; }
     private int activeLayout = -1;
+    private int activeModelView=-1;
+    internal DxfModelView? ModelView => Document!=null&&activeModelView>=0?Document.ModelViews[activeModelView]:null;
+    internal bool ModelViewInteractive => Layout!=null||ModelView?.IsInteractive!=false;
+    internal int ActiveModelView
+    {
+        get=>activeModelView;
+        set
+        {
+            if(Document==null||value==activeModelView||value < -1||value>=Document.ModelViews.Count)return;
+            if(value>=0&&!Document.ModelViews[value].IsSupported)throw new NotSupportedException("The saved camera could not be prepared.");
+            activeModelView=value;if(Layout==null)ApplyLayout();ModelViewChanged?.Invoke();
+        }
+    }
+    internal event Action? ModelViewChanged;
+    internal void RestoreSavedModelView()
+    {
+        if(Document?.DefaultModelView is { } id&&Document.ModelViews[id.Value].IsSupported)ActiveModelView=id.Value;
+        else ActiveModelView=-1;
+    }
     /// <summary>
     /// −1 shows model space; otherwise the index into <see cref="DxfDocument.Layouts"/>. Switching only changes the
     /// camera, picking and draw ranges; GPU geometry is uploaded once per document.
@@ -89,12 +108,12 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
         Background = Brushes.Transparent;
         Focusable = true;
         Cursor = Cursors.Cross;
-        SizeChanged += (_, e) => { if (e.PreviousSize.Width == 0 && Document != null) Fit(); else Invalidate(); };
+        SizeChanged += (_, e) => { if (e.PreviousSize.Width == 0 && Document != null) {if(ModelView!=null&&Layout==null)FrameSavedView();else Fit();} else Invalidate(); };
     }
     public void SetDocument(DxfDocument doc, Action? commit = null, CancellationToken cancellationToken = default)
     {
         UploadGeometry(doc, cancellationToken);
-        Document = doc;
+        Document = doc;activeModelView=-1;
         activeLayout = doc.Entities.Count == 0 && doc.Layouts.Count > 0 ? 0 : -1;
         // Layers start as the file saved them: off or frozen layers are hidden.
         layerVisible = [.. doc.Layers.Select(l => l.VisibleInFile)];
@@ -106,9 +125,10 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     }
     private void ApplyLayout()
     {
-        bounds = Layout?.Bounds ?? Document!.Bounds;
+        bounds=Layout?.Bounds??ModelView?.Window?.ProjectedEntities?.Aggregate(Rect.Empty,(r,e)=>{r.Union(e.Bounds);return r;})??Document!.Bounds;
+        if(Layout==null&&ModelView?.Window is {ProjectedEntities:null} window&&!bounds.IsEmpty)bounds=Rect.Transform(bounds,window.ModelToPaper);
         RebuildIndexes();
-        ClearSelection(); Fit(); LayoutChanged?.Invoke();
+        ClearSelection(); if(ModelView!=null&&Layout==null)FrameSavedView();else Fit(); LayoutChanged?.Invoke();
     }
     private void Upload()
     {
@@ -120,7 +140,7 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     {
         if (host.Renderer is not { } renderer) return;
         renderer.SetDrawing(doc.Entities, Center(doc.Bounds),
-            [.. doc.Layouts.Select(l => ((IEnumerable<DxfEntity>)l.Entities, Center(l.Bounds)))], [.. doc.Groups.Select(g => g.Layer)], cancellationToken, [.. doc.Layouts.SelectMany(l=>l.Viewports).Where(v=>v.IsOrthographic3D)]);
+            [.. doc.Layouts.Select(l => ((IEnumerable<DxfEntity>)l.Entities, Center(l.Bounds)))], [.. doc.Groups.Select(g => g.Layer)], cancellationToken, [.. doc.Layouts.SelectMany(l=>l.Viewports).Where(v=>v.HasProjection).Concat(doc.ModelViews.Where(v=>v.IsSupported).Select(v=>v.Window!))]);
     }
 
     // ---- Layer and category visibility. Changes rewrite only the renderer's small group table.
@@ -198,6 +218,13 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
         Upload();
         Invalidate();
     }
+    private void FrameSavedView()
+    {
+        if(ModelView==null||ActualWidth<1||ActualHeight<1)return;
+        var frame=ModelView.Frame;
+        scale=Math.Clamp(Math.Min(ActualWidth/frame.Width,ActualHeight/frame.Height),1e-9,1e9);
+        offset=new(ActualWidth/2-ModelView.Center.X*scale,ActualHeight/2+ModelView.Center.Y*scale);Invalidate();
+    }
     public void Fit()
     {
         if (Document == null || ActualWidth < 1 || ActualHeight < 1) return;
@@ -213,8 +240,20 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
         selected.Clear(); Measurement = null; hoveredMidpoint = null;
         Invalidate(); SelectionChanged?.Invoke();
     }
-    private Point World(Point p) => new((p.X - offset.X) / scale, (offset.Y - p.Y) / scale);
-    private Point Screen(Point p) => new(p.X * scale + offset.X, -p.Y * scale + offset.Y);
+    private System.Windows.Media.Matrix ModelMatrix
+    {
+        get
+        {
+            var matrix=System.Windows.Media.Matrix.Identity;
+            if(Layout==null&&ModelView is {IsInteractive:true} view){matrix.Translate(-view.Target.X,-view.Target.Y);matrix.Rotate(view.Twist);}
+            return matrix;
+        }
+    }
+    private Point World(Point p)
+    {
+        var q=new Point((p.X-offset.X)/scale,(offset.Y-p.Y)/scale);var inverse=ModelMatrix;inverse.Invert();return inverse.Transform(q);
+    }
+    private Point Screen(Point p){p=ModelMatrix.Transform(p);return new(p.X*scale+offset.X,-p.Y*scale+offset.Y);}
     internal Point ToWorld(Point p) => World(p);
     internal Point ToScreen(Point p) => Screen(p);
     internal (double Scale, System.Windows.Vector Offset) Camera
@@ -225,7 +264,7 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     internal void ClearDocument()
     {
         host.Renderer?.SetDrawing(Array.Empty<DxfEntity>(), default);
-        Document = null; activeLayout = -1; bounds = Rect.Empty;
+        Document = null; activeLayout = -1;activeModelView=-1; bounds = Rect.Empty;
         midpointIndex = null; modelIndex = null; layerVisible = []; hiddenCategories.Clear();
         ClearSelection(); LayoutChanged?.Invoke(); VisibilityChanged?.Invoke();
     }
@@ -254,7 +293,7 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
         if (host.Renderer is not { } renderer) return;
         var (w, h) = host.PixelSize;
         try { renderer.Render(w, h, VisualTreeHelper.GetDpi(this).DpiScaleX, scale, offset, BackColor, LineColor, DrawOverlay,
-            activeLayout, Layout?.Viewports, monochrome); }
+            activeLayout, Layout?.Viewports, monochrome,Layout==null?ModelView?.Window:null); }
         catch (Exception ex) { ReportRenderingFailure(ex); }
     }
 
@@ -452,6 +491,7 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     // there, in model coordinates, skipping layers frozen in that viewport.
     private MeasurementTarget? Pick(Point point, bool snapMidpoint)
     {
+        if(!ModelViewInteractive)return null;
         var target = snapMidpoint ? midpointIndex?.Find(point, 8 / scale) : null;
         target ??= Nearest(ActiveEntities, point, 7 / scale, null);
         if (target != null || Layout is not { } layout) return target;
@@ -486,6 +526,7 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     }
     private MeasurementTarget? HoverAt(Point point)
     {
+        if(!ModelViewInteractive)return null;
         var paper = midpointIndex?.Find(point, 8 / scale);
         if (paper != null || Layout is not { } layout) return paper;
         if (ViewportAt(layout, point) is not { } viewport || !viewport.IsInteractive) return null;

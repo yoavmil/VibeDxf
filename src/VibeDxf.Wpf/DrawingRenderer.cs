@@ -37,11 +37,12 @@ internal sealed class DrawingRenderer : IDisposable
             o.color.a *= (flags & 2) ? min(style.y, style.z) : style.z;
             return o;
         }
-        VSOut LineVS(float2 p : POSITION, float4 c : COLOR, uint g : GROUP) { return Shade(Project(p), c, g); }
-        VSOut PointVS(float2 p : POSITION, float4 c : COLOR, uint g : GROUP, uint id : SV_VertexID)
+        float4 Project3D(float3 p) { return float4(Linear(p.xy) + float2(row0.z,row1.z), min(1,p.z*(1+pad.z)),1); }
+        VSOut LineVS(float3 p : POSITION, float4 c : COLOR, uint g : GROUP) { return Shade(Project3D(p), c, g); }
+        VSOut PointVS(float3 p : POSITION, float4 c : COLOR, uint g : GROUP, uint id : SV_VertexID)
         {
             float2 offsets[4] = {float2(-1,0),float2(1,0),float2(0,-1),float2(0,1)};
-            float4 q=Project(p); q.xy+=offsets[id%4]*pad.xy; return Shade(q, c, g);
+            float4 q=Project3D(p); q.xy+=offsets[id%4]*pad.xy; return Shade(q, c, g);
         }
         VSOut ArcVS(float2 center : CENTER, float radius : RADIUS, float2 angles : ANGLES, float4 c : COLOR, uint g : GROUP, uint id : SV_VertexID)
         {
@@ -62,7 +63,7 @@ internal sealed class DrawingRenderer : IDisposable
     private struct Constants { public Vector4 Row0; public Vector4 Row1; public Vector4 Color; public float Segments; public Vector3 Pad; public Vector4 Style; }
     // Color is packed RGBA (R in the low byte); Group indexes the visibility table.
     [StructLayout(LayoutKind.Sequential)]
-    private readonly record struct Vertex(Vector2 Position, uint Color, uint Group);
+    private readonly record struct Vertex(Vector3 Position, uint Color, uint Group);
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct ArcInstance(Vector2 Center, float Radius, float Start, float Sweep, uint Color, uint Group);
     [StructLayout(LayoutKind.Sequential)]
@@ -74,7 +75,7 @@ internal sealed class DrawingRenderer : IDisposable
     private readonly record struct ArcBucket(int Start, int Count, double MaxRadius);
     private readonly record struct Range(int Start, int Count);
     // One uploaded space (model or paper): its float origin and its ranges in the shared buffers.
-    private sealed record Part(System.Windows.Point Origin, Range Lines, Range Fills, Range Points, Range Dots, Range Rays, ArcBucket[] Buckets);
+    private sealed record Part(System.Windows.Point Origin, Range Lines, Range Fills, Range Points, Range Dots, Range Rays, ArcBucket[] Buckets, bool Depth);
 
     private readonly ID3D11Device device;
     private readonly ID3D11DeviceContext context;
@@ -85,6 +86,9 @@ internal sealed class DrawingRenderer : IDisposable
     private readonly ID3D11Buffer constantBuffer;
     private readonly ID3D11RasterizerState rasterizer, scissorRasterizer;
     private readonly ID3D11BlendState blend;
+    private readonly ID3D11DepthStencilState depthState,flatDepthState;
+    private ID3D11Texture2D? depthTexture;
+    private ID3D11DepthStencilView? depthTarget;
     private readonly D2D.ID2D1Factory1 d2dFactory;
     private readonly D2D.ID2D1DeviceContext d2d;
     private readonly IDWriteFactory dwrite;
@@ -139,9 +143,9 @@ internal sealed class DrawingRenderer : IDisposable
         pointShader = device.CreateVertexShader(Compiler.Compile(ShaderSource,"PointVS","drawing.hlsl","vs_4_0").Span);
         pixelShader = device.CreatePixelShader(Compiler.Compile(ShaderSource, "PS", "drawing.hlsl", "ps_4_0").Span);
         lineLayout = device.CreateInputLayout([
-            new InputElementDescription("POSITION", 0, Format.R32G32_Float, 0, 0),
-            new InputElementDescription("COLOR", 0, Format.R8G8B8A8_UNorm, 8, 0),
-            new InputElementDescription("GROUP", 0, Format.R32_UInt, 12, 0)], lineCode.Span);
+            new InputElementDescription("POSITION", 0, Format.R32G32B32_Float, 0, 0),
+            new InputElementDescription("COLOR", 0, Format.R8G8B8A8_UNorm, 12, 0),
+            new InputElementDescription("GROUP", 0, Format.R32_UInt, 16, 0)], lineCode.Span);
         arcLayout = device.CreateInputLayout([
             new InputElementDescription("CENTER", 0, Format.R32G32_Float, 0, 0, InputClassification.PerInstanceData, 1),
             new InputElementDescription("RADIUS", 0, Format.R32_Float, 8, 0, InputClassification.PerInstanceData, 1),
@@ -161,6 +165,8 @@ internal sealed class DrawingRenderer : IDisposable
         rasterizer = device.CreateRasterizerState(new RasterizerDescription(CullMode.None, FillMode.Solid) { AntialiasedLineEnable = true });
         scissorRasterizer = device.CreateRasterizerState(new RasterizerDescription(CullMode.None, FillMode.Solid) { AntialiasedLineEnable = true, ScissorEnable = true });
         blend = device.CreateBlendState(BlendDescription.NonPremultiplied);
+        depthState=device.CreateDepthStencilState(new DepthStencilDescription{DepthEnable=true,DepthWriteMask=DepthWriteMask.All,DepthFunc=ComparisonFunction.GreaterEqual});
+        flatDepthState=device.CreateDepthStencilState(new DepthStencilDescription{DepthEnable=false,DepthWriteMask=DepthWriteMask.Zero});
 
         d2dFactory = D2D.D2D1.D2D1CreateFactory<D2D.ID2D1Factory1>();
         using var d2dDevice = d2dFactory.CreateDevice(dxgiDevice);
@@ -199,7 +205,15 @@ internal sealed class DrawingRenderer : IDisposable
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 uint color = DxfDisplayColors.ForDarkBackground(e.Color), group = (uint)e.Group; maxGroup = Math.Max(maxGroup, e.Group);
-                Vertex V(System.Windows.Point q) => new(F(q), color, group);
+                Vertex V(System.Windows.Point q) => new(new Vector3(F(q),0), color, group);
+                Vertex V3(System.Windows.Media.Media3D.Point3D q)=>new(new((float)(q.X-o.X),(float)(q.Y-o.Y),(float)q.Z),color,group);
+                if(e.DisplayGeometry3D is { } spatial)
+                {
+                    foreach(var line in spatial.Lines){lines.Add(V3(line.Start));lines.Add(V3(line.End));}
+                    foreach(var triangle in spatial.Triangles){triangles.Add(V3(triangle.A));triangles.Add(V3(triangle.B));triangles.Add(V3(triangle.C));}
+                    foreach(var q in spatial.Dots)dots.AddRange(Enumerable.Repeat(V3(q),4));
+                    continue;
+                }
                 if (e.Kind == "POINT") { points.AddRange(Enumerable.Repeat(V(e.Curves[0].Start), 4)); continue; }
                 foreach (var c in e.RenderCurves ?? e.Curves)
                     if (c.IsUnbounded) rays.Add(new RayInstance(F(c.Start), new((float)(c.End.X - c.Start.X), (float)(c.End.Y - c.Start.Y)), c.Extent == LineExtent.Infinite ? 1 : 0, color, group));
@@ -217,11 +231,11 @@ internal sealed class DrawingRenderer : IDisposable
                 bucketList.Add(new ArcBucket(start, i - start, arcs[i - 1].Radius));
             }
             return new Part(o, new(l, lines.Count - l), new(f, triangles.Count - f), new(p, points.Count - p), new(d, dots.Count - d),
-                new(r, rays.Count - r), [.. bucketList]);
+                new(r, rays.Count - r), [.. bucketList],entities.Any(e=>e.DisplayGeometry3D!=null));
         }
         var nextModel = Collect(modelEntities.ToArray(), origin);
         var nextPapers = layouts.Select(l => Collect(l.Entities.ToArray(), l.Origin)).ToArray();
-                var nextProjected = (projectedViewports??[]).ToDictionary(v=>v,v=>
+                var nextProjected = (projectedViewports??[]).Where(v=>v.ProjectedEntities!=null).ToDictionary(v=>v,v=>
         {
             var entities=v.ProjectedEntities!.ToArray();var bounds=entities.Aggregate(System.Windows.Rect.Empty,(r,e)=>{r.Union(e.Bounds);return r;});
             var center=bounds.IsEmpty?default:new System.Windows.Point(bounds.X+bounds.Width/2,bounds.Y+bounds.Height/2);
@@ -288,13 +302,16 @@ internal sealed class DrawingRenderer : IDisposable
         d2dTarget = d2d.CreateBitmapFromDxgiSurface(surface, new D2D.BitmapProperties1(
             new PixelFormat(Format.B8G8R8A8_UNorm, AlphaMode.Premultiplied), 96, 96, D2D.BitmapOptions.Target | D2D.BitmapOptions.CannotDraw));
         d2d.Target = d2dTarget;
+        depthTexture=device.CreateTexture2D(new Texture2DDescription{Width=(uint)width,Height=(uint)height,MipLevels=1,ArraySize=1,Format=Format.D32_Float,SampleDescription=new(1,0),BindFlags=BindFlags.DepthStencil});
+        depthTarget=device.CreateDepthStencilView(depthTexture);
     }
 
     private void Resize(int w, int h)
     {
         if (w == width && h == height) return;
         width = w; height = h;
-        d2d.Target = null; d2dTarget?.Dispose(); renderTarget?.Dispose();
+        context.OMSetRenderTargets(Array.Empty<ID3D11RenderTargetView>());
+        d2d.Target = null; d2dTarget?.Dispose(); renderTarget?.Dispose();depthTarget?.Dispose();depthTexture?.Dispose();
         swapChain.ResizeBuffers(0, (uint)w, (uint)h, Format.Unknown, SwapChainFlags.None).CheckError();
         CreateTargets();
     }
@@ -306,7 +323,7 @@ internal sealed class DrawingRenderer : IDisposable
     /// </summary>
     public void Render(int pixelWidth, int pixelHeight, double dipScale, double scale, System.Windows.Vector offset,
         Color4 background, Color4 lineColor, Action<D2D.ID2D1DeviceContext> overlay,
-        int layout = -1, IReadOnlyList<DxfViewportWindow>? viewports = null, bool monochrome = false)
+        int layout = -1, IReadOnlyList<DxfViewportWindow>? viewports = null, bool monochrome = false,DxfViewportWindow? modelView=null)
     {
         if (pixelWidth < 1 || pixelHeight < 1) return;
         Resize(pixelWidth, pixelHeight);
@@ -314,7 +331,8 @@ internal sealed class DrawingRenderer : IDisposable
         var paper = layout >= 0 && layout < papers.Length ? papers[layout] : null;
         if (model != null)
         {
-            context.OMSetRenderTargets(renderTarget!);
+            context.OMSetRenderTargets(renderTarget!,depthTarget!);
+            context.ClearDepthStencilView(depthTarget!,DepthStencilClearFlags.Depth,0,0);
             context.RSSetViewport(0, 0, width, height);
             context.OMSetBlendState(blend);
             context.PSSetShader(pixelShader);
@@ -322,7 +340,7 @@ internal sealed class DrawingRenderer : IDisposable
             context.PSSetConstantBuffer(0, constantBuffer);
             context.VSSetShaderResource(0, groupView!);
             var camera = new System.Windows.Media.Matrix(scale, 0, 0, -scale, offset.X, offset.Y);
-            if (paper == null) { context.RSSetState(rasterizer); Draw(model, camera, dipScale, lineColor, 1, monochrome); }
+            if (paper == null) { context.RSSetState(rasterizer); Draw(modelView!=null&&projectedParts.TryGetValue(modelView,out var displayed)?displayed:model, (modelView?.ModelToPaper??System.Windows.Media.Matrix.Identity)*camera, dipScale, lineColor, 1, monochrome); }
             else
             {
                 context.RSSetState(scissorRasterizer);
@@ -337,6 +355,7 @@ internal sealed class DrawingRenderer : IDisposable
                     // Layers frozen in this viewport only: hide their groups for this pass.
                     if (viewport.FrozenLayers.Count > 0)
                         WriteGroups([.. groupFlags.Select((f, g) => g < groupLayers.Length && viewport.FrozenLayers.Contains(groupLayers[g]) ? f & ~GroupVisible : f)]);
+                    context.ClearDepthStencilView(depthTarget!,DepthStencilClearFlags.Depth,0,0);
                     Draw(projectedParts.TryGetValue(viewport,out var projected)?projected:model, viewport.ModelToPaper * camera, dipScale, lineColor, 1, monochrome);
                     if (viewport.FrozenLayers.Count > 0) WriteGroups(groupFlags);
                 }
@@ -355,6 +374,7 @@ internal sealed class DrawingRenderer : IDisposable
     /// <summary>Draws one uploaded space through an affine world-to-DIP transform.</summary>
     private void Draw(Part part, System.Windows.Media.Matrix worldToDip, double dipScale, Color4 lineColor, float opacity, bool monochrome)
     {
+        context.OMSetDepthStencilState(part.Depth?depthState:flatDepthState);
         double w = width / dipScale, h = height / dipScale;
         var m = worldToDip; var o = part.Origin;
         // Vertices are relative to the part origin; fold it into the translation in double precision.
@@ -375,6 +395,7 @@ internal sealed class DrawingRenderer : IDisposable
             context.IASetVertexBuffer(0,fillBuffer,stride);
             context.VSSetShader(lineShader);context.Draw((uint)part.Fills.Count,(uint)part.Fills.Start);
         }
+        constants.Pad.Z=part.Depth?1e-6f:0;
         if(dotBuffer!=null&&part.Dots.Count>0)
         {
             var dotsConstants=constants;dotsConstants.Pad*=0.2f;SetConstants(dotsConstants);
@@ -436,7 +457,7 @@ internal sealed class DrawingRenderer : IDisposable
     public void Dispose()
     {
         if (d2d != null) d2d.Target = null;
-        foreach (IDisposable? d in new IDisposable?[] { groupView, groupBuffer, d2dTarget, renderTarget, lineBuffer, arcBuffer, fillBuffer, pointBuffer, dotBuffer, rayBuffer, pointShader, rayShader, dwrite, d2d, d2dFactory,
+        foreach (IDisposable? d in new IDisposable?[] { depthTarget,depthTexture,depthState,flatDepthState,groupView, groupBuffer, d2dTarget, renderTarget, lineBuffer, arcBuffer, fillBuffer, pointBuffer, dotBuffer, rayBuffer, pointShader, rayShader, dwrite, d2d, d2dFactory,
             blend, rasterizer, scissorRasterizer, constantBuffer, rayLayout, arcLayout, lineLayout, pixelShader, arcShader, lineShader, swapChain, context, device })
             d?.Dispose();
     }

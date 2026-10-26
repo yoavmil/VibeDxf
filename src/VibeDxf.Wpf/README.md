@@ -55,7 +55,7 @@ Measurement results include status, closest endpoints, Euclidean distance, signe
 
 ## Supported drawing scope
 
-The 3D polyline, mesh, solid and orthographic viewport projections below are unreleased source additions, not part of the published 0.2.0 package.
+The 3D polyline, mesh, solid and saved camera projections below are unreleased source additions, not part of the published 0.2.0 package.
 
 ASCII DXF with supported planar LINE, ARC, CIRCLE, 2D polylines/bulges, SPLINE, RAY/XLINE, POINT, SOLID, TEXT/MTEXT, block inserts/arrays/attributes, solid/patterned HATCH, saved dimension blocks, leaders/multileaders and plan-view layout viewports. Unsupported records and supported approximations produce diagnostics; this is not a full CAD editor or complete DXF implementation.
 
@@ -79,7 +79,13 @@ The viewer uses HwndHost, so ordinary WPF controls cannot reliably overlay its n
 
 Package contents include the managed library, XML API documentation, this README, MIT license and third-party notices. The dependent Vortice packages retain their own licenses. Public DXF fixtures and application icons/installers are not included. See the repository's `samples/PackageConsumers` for independent WPF and console package consumers and `docs/NUGET-SINGLE-INTEGRATION.md` for more detail.
 
-Orthographic nonplan VIEWPORTs have prepared per-window geometry in their saved DCS view basis, with source XYZ retained for lines, mesh/polyline vertices and supported solid boundaries. Planar geometry uses its stored elevation; nested supported INSERTs retain Z scale, base point and placement. These windows are display-only (`IsOrthographic3D=true`, `IsInteractive=false`); picking/snapping and DxfView model-XY anchor selection or coordinate conversion through their frame IDs are unavailable (`NotSupportedException`). Their `ModelToPaper` matrix maps prepared DCS coordinates, not arbitrary model XYZ. Plan-view viewport behavior is unchanged. Perspective views and depth clipping remain explicit skips; hidden-line removal, shaded surfaces and arbitrary 3D OCS inserts are not implemented. Projection geometry is prepared at load and uploaded once, retaining source layer/category visibility and per-window frozen layers.
+### Saved cameras
+
+`DxfDocument.ModelViews` exposes read-only saved VPORT and named model-space VIEW definitions with document-local identities. `DefaultModelView` identifies the first `*ACTIVE` VPORT; legacy header settings are the fallback when no active VPORT exists. Public `DxfView.SetDocumentAsync` restores the saved model camera. Set `ActiveModelView` to a document view ID to select it, set it to null for original XY, or call `RestoreSavedModelView()`. `ModelViewChanged` reports per-control camera changes. Foreign IDs and unavailable cameras are rejected. Tiled camera definitions are selectable individually; paper-space VIEW bookmarks are not model cameras.
+
+Saved model and paper cameras honor orthographic direction, XYZ target, center, height/aspect, twist, perspective lens length and front/back clipping. Finite model geometry outside the initial frame is retained for pan and fit. Plan views reuse analytic XY GPU geometry; other prepared camera ranges retain projected depth and share immutable GPU buffers. Camera and visibility changes do not re-upload geometry. Surface display uses depth testing, while edged solids remain boundary wireframes. General ACIS surface tessellation, visual-style lighting and orbit controls are not implemented.
+
+`DxfModelView.IsInteractive` and `DxfViewportWindow.IsInteractive` identify views compatible with XY anchors. Nonplan, perspective and depth-clipped cameras are display-only; interactive picking/snapping and public model-XY anchor selection or coordinate conversion through those views throw `NotSupportedException`. Query geometry and distances remain in the document's original XY space. `ModelToPaper` maps prepared DCS coordinates for projected windows, rather than arbitrary model XYZ. Invalid/excessive spatial preparation marks a camera unavailable without dropping valid analytic XY geometry. Processing and retained-vertex limits bound camera preparation; nonplan unbounded lines are displayed within the saved framing.
 ### Edge-free torus solids
 
 The reader also handles the SAT version 400 schema used by the public `torus_r2000.dxf` fixture. Unlike an edged solid, this file contains one full toroidal face with no loops or boundary edges. Complete, untrimmed ring-torus faces are tessellated from their actual center, axis, radii and body transform, with a 0.02 drawing-unit surface display bound before INSERT scaling. Their XYZ triangles are retained for camera views; the model XY view shows the projected surface and its hole.
