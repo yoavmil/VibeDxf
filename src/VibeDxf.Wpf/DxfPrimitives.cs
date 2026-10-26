@@ -184,12 +184,14 @@ internal static class DxfPrimitives
         var bounds=curves.Aggregate(Rect.Empty,(r,c)=>{r.Union(c.Bounds);return r;});
         foreach(var point in projectedFill??[])bounds.Union(point);
         if(bounds.IsEmpty&&!entity.Bounds.IsEmpty)bounds=Rect.Transform(entity.Bounds,matrix);
+        DxfSpatialGeometry? spatial=null;string? spatialError=entity.SpatialGeometryError;
+        try{spatial=entity.SpatialGeometry?.Transform(matrix,1,0);}catch(System.IO.InvalidDataException ex){spatialError=ex.Message;}
         return new DxfEntity(entity.Kind,layer,handle,curves)
         {
             FillContours=entity.FillContours.Select(p=>p.Select(matrix.Transform).ToArray()).ToList(),
             FillTriangles=projectedFill,
             Bounds=bounds,
-            SpatialGeometry=entity.SpatialGeometry?.Transform(matrix,1,0),
+            SpatialGeometry=spatial,SpatialGeometryError=spatialError,
             RegionContours=entity.RegionContours?.Select(p=>p.Select(matrix.Transform).ToArray()).ToList(),
             RenderCurves=entity.RenderCurves?.Select(c=>Curve.Line(matrix.Transform(c.Start),matrix.Transform(c.End))).ToList(),
             RenderDots=entity.RenderDots.Select(matrix.Transform).ToList(),

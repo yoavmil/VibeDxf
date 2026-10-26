@@ -226,9 +226,15 @@ internal static class DxfReader
                     entity.ColorSource=sourceOverride??colorSource;
                     var placement=matrix;var placementZScale=zScale*recordZSign;var placementZOffset=zOffset;var elevation=recordElevation;var name=path+entity.Handle;var resolved=colorOverride??color;
                     var sourceProjection=entity.Projection3D;
-                    var spatial=entity.SpatialGeometry??DxfSpatialGeometry.FromPlanar(entity,elevation);
                     var transformed=DxfPrimitives.Transform(entity,placement,layer,name,category,resolved);
-                    transformed.SpatialGeometry=spatial.Transform(placement,placementZScale,placementZOffset);
+                    if(entity.SpatialGeometryError==null)
+                        try
+                        {
+                            var spatial=entity.SpatialGeometry??DxfSpatialGeometry.FromPlanar(entity,elevation);
+                            transformed.SpatialGeometry=spatial.Transform(placement,placementZScale,placementZOffset);
+                            transformed.SpatialGeometryError=null;
+                        }
+                        catch(Exception ex) when(ex is InvalidDataException or NotSupportedException){transformed.SpatialGeometry=null;transformed.SpatialGeometryError=ex.Message;}
                     transformed.Projection3D=projection=>
                     {
                         Point Map(Point3D p){LoadingContext.Check();var q=placement.Transform(new Point(p.X,p.Y));return projection(new(q.X,q.Y,p.Z*placementZScale+placementZOffset));}
@@ -560,27 +566,32 @@ internal static class DxfReader
         }
         if(activeCount==0)
         {
-            var headers=new Dictionary<string,List<(int Code,string Value)>>();string? variable=null;
-            foreach(var pair in pairs)
+            var headers=new Dictionary<string,List<(int Code,string Value)>>();string? variable=null;bool header=false;
+            for(int i=0;i<pairs.Count;i++)
+            {
+                var pair=pairs[i];
+                if(pair.Code==0&&pair.Value=="SECTION"){header=i+1<pairs.Count&&pairs[i+1].Code==2&&pairs[i+1].Value=="HEADER";variable=null;continue;}
+                if(pair.Code==0){if(pair.Value=="ENDSEC")header=false;variable=null;continue;}
+                if(!header)continue;
                 if(pair.Code==9){variable=pair.Value;headers[variable]=[];}
-                else if(pair.Code==0)variable=null;
                 else if(variable!=null)headers[variable].Add((pair.Code,pair.Value));
+            }
             if(headers.ContainsKey("$VIEWDIR")||headers.ContainsKey("$VIEWCTR")||headers.ContainsKey("$VIEWSIZE"))
             {
                 var cameraFields=new List<(int Code,string Value)>();
                 void Copy(string name,int from,int to){if(headers.TryGetValue(name,out var values))foreach(var f in values)if(f.Code==from)cameraFields.Add((to,f.Value));}
                 foreach(var (from,to) in new[]{(10,16),(20,26),(30,36)})Copy("$VIEWDIR",from,to);
                 foreach(var (from,to) in new[]{(10,17),(20,27),(30,37)})Copy("$TARGET",from,to);
-                Copy("$VIEWCTR",10,12);Copy("$VIEWCTR",20,22);Copy("$VIEWSIZE",40,40);Copy("$VIEWTWIST",50,51);Copy("$LENSLENGTH",40,42);Copy("$VIEWMODE",70,71);
+                Copy("$VIEWCTR",10,12);Copy("$VIEWCTR",20,22);Copy("$VIEWSIZE",40,40);Copy("$VIEWTWIST",50,51);Copy("$LENSLENGTH",40,42);Copy("$VIEWMODE",70,71);Copy("$FRONTZ",40,43);Copy("$BACKZ",40,44);
                 try {var camera=DxfSavedViewReader.Read("Legacy saved model view",DxfModelViewSource.Header,cameraFields);doc.ModelViews.Insert(0,camera);doc.DefaultModelView=camera;}
                 catch(InvalidDataException){Note("Header camera has invalid parameters");}
             }
         }
-        long projectionWork=0;
+        var cameraBudget=new DxfCameraPreparationBudget();
         // Existing layout windows and the current model view take priority over optional named views.
         foreach(var layout in doc.Layouts)
             foreach(var window in layout.Viewports.Where(v=>v.HasProjection).ToArray())
-                try { window.ProjectedEntities=DxfCameraProjection.Prepare(window.CameraView!,doc.Entities,ref projectionWork); }
+                try { window.ProjectedEntities=DxfCameraProjection.Prepare(window.CameraView!,doc.Entities,cameraBudget); }
                 catch(Exception ex) when(ex is InvalidDataException or NotSupportedException)
                 {
                     layout.Viewports.Remove(window);if(window.FrameEntity!=null)layout.Entities.Remove(window.FrameEntity);
@@ -590,7 +601,12 @@ internal static class DxfReader
         {
             try
             {
-                var snapshot=DxfCameraProjection.Prepare(camera,doc.Entities,ref projectionWork,clipLateral:false);
+                if(camera.IsInteractive)
+                {
+                    var matrix=System.Windows.Media.Matrix.Identity;matrix.Translate(-camera.Target.X,-camera.Target.Y);matrix.Rotate(camera.Twist);
+                    camera.Window=new DxfViewportWindow(camera.Name,camera.Frame,matrix){CameraView=camera};continue;
+                }
+                var snapshot=DxfCameraProjection.Prepare(camera,doc.Entities,cameraBudget,clipLateral:false);
                 camera.Window=new DxfViewportWindow(camera.Name,camera.Frame,System.Windows.Media.Matrix.Identity){CameraView=camera,ProjectedEntities=snapshot,IsOrthographic3D=!camera.Perspective&&!camera.IsInteractive};
             }
             catch(Exception ex) when(ex is InvalidDataException or NotSupportedException){Note("Saved camera could not be prepared: "+camera.Name+" ("+ex.Message+")");}

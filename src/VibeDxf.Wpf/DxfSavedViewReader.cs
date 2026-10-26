@@ -24,6 +24,7 @@ internal static class DxfSavedViewReader
         long flags=(long)N(paper?90:71);
         if(d.Length<1e-20||!double.IsFinite(d.Length)||h<=0||aspect<=0||!double.IsFinite(aspect)||!double.IsFinite(h*aspect)||N(42,50)<=0)
             throw new InvalidDataException("Invalid camera framing or direction.");
+        if(!new[]{c.X-h*aspect/2,c.X+h*aspect/2,c.Y-h/2,c.Y+h/2}.All(double.IsFinite))throw new InvalidDataException("Camera frame exceeds finite coordinates.");
         return new(name,source,d,t,c,h,aspect,N(named?50:51),(flags&1)!=0,N(42,50),(flags&2)!=0,(flags&4)!=0,(flags&16)==0,N(43),N(44));
     }
 }

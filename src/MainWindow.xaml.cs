@@ -54,7 +54,7 @@ public partial class MainWindow : Window
     {
         ModelCameraMenu.Items.Clear();
         var xy=new System.Windows.Controls.MenuItem{Header="Original XY / measurement",IsCheckable=true,IsChecked=Viewer.ActiveModelView==null};
-        xy.Click+=(_,_)=>Viewer.ActiveModelView=null;ModelCameraMenu.Items.Add(xy);
+        xy.Click+=(_,_)=>{Viewer.ActiveLayout=null;Viewer.ActiveModelView=null;};ModelCameraMenu.Items.Add(xy);
         foreach(var camera in Viewer.Document?.ModelViews??[])
         {
             var item=new System.Windows.Controls.MenuItem{Header=camera.Name+(camera.Perspective?" (perspective)":camera.IsInteractive?"":" (3D)"),IsCheckable=true,IsChecked=Viewer.ActiveModelView==camera.Id,IsEnabled=camera.IsSupported};

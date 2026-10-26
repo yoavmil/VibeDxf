@@ -6,6 +6,14 @@ namespace VibeDxf.Wpf;
 
 // Clip in the camera's XYZ coordinates before perspective division. Display vertices use
 // reversed depth (near=1, far=0); the GPU camera pass must clear depth to zero and use GreaterEqual.
+internal sealed class DxfCameraPreparationBudget
+{
+    internal long ProcessingWork {get;set;}
+    internal long RetainedVertices {get;set;}
+    internal void Process(){LoadingContext.Check();if(++ProcessingWork>32_000_000)throw new InvalidDataException("Camera processing work exceeds its aggregate limit.");}
+    internal void Reserve(int vertices){if((RetainedVertices+=vertices)>8_000_000)throw new InvalidDataException("Camera retained vertices exceed their aggregate limit.");}
+}
+
 internal sealed class DxfCameraProjection
 {
     private readonly DxfModelView view;
@@ -107,8 +115,9 @@ internal sealed class DxfCameraProjection
         }
         for(int i=1;i+1<polygon.Count;i++)yield return new(polygon[0],polygon[i],polygon[i+1]);
     }
-    private ClippedShape Clip(DxfEntity source,ref long work)
+    private ClippedShape Clip(DxfEntity source,DxfCameraPreparationBudget budget)
     {
+        if(source.SpatialGeometryError!=null)throw new NotSupportedException(source.Kind+" spatial preparation: "+source.SpatialGeometryError);
         var spatial=source.SpatialGeometry??DxfSpatialGeometry.FromPlanar(source,0);
         var lines=new List<ClippedLine>();var triangles=new List<DxfSpatialTriangle>();var dots=new List<Point3D>();
         void CheckBudget()
@@ -118,30 +127,37 @@ internal sealed class DxfCameraProjection
         }
         foreach(var line in spatial.Lines)
         {
-            CheckBudget();if(++work>4_000_000)throw new InvalidDataException("Camera display geometry exceeds its aggregate limit.");
-            if(ClipLine(line,out var clipped))lines.Add(clipped);
+            CheckBudget();budget.Process();
+            if(ClipLine(line,out var clipped)){budget.Reserve(4);lines.Add(clipped);}
         }
         foreach(var triangle in spatial.Triangles)
         {
-            CheckBudget();if(++work>4_000_000)throw new InvalidDataException("Camera display geometry exceeds its aggregate limit.");
+            CheckBudget();budget.Process();
             foreach(var clipped in ClipTriangle(triangle))
             {
-                if(++work>4_000_000)throw new InvalidDataException("Camera display geometry exceeds its aggregate limit.");
-                triangles.Add(clipped);
+                budget.Process();budget.Reserve(3);triangles.Add(clipped);
             }
         }
         foreach(var dot in spatial.Dots)
         {
-            CheckBudget();if(++work>4_000_000)throw new InvalidDataException("Camera display geometry exceeds its aggregate limit.");
-            var p=Dcs(dot);if(planes.All(plane=>plane.At(p)>=0))dots.Add(p);
+            CheckBudget();budget.Process();
+            var p=Dcs(dot);if(planes.All(plane=>plane.At(p)>=0)){budget.Reserve(4);dots.Add(p);}
         }
         return new(source,lines,triangles,dots,spatial.Approximate||view.Perspective);
     }
 
     internal static IReadOnlyList<DxfEntity> Prepare(DxfModelView view,IReadOnlyList<DxfEntity> entities,ref long work,bool clipLateral=true)
     {
+        var budget=new DxfCameraPreparationBudget{ProcessingWork=work};
+        try{return Prepare(view,entities,budget,clipLateral);}finally{work=budget.ProcessingWork;}
+    }
+    internal static IReadOnlyList<DxfEntity> Prepare(DxfModelView view,IReadOnlyList<DxfEntity> entities,DxfCameraPreparationBudget budget,bool clipLateral=true)
+    {
+        long retainedStart=budget.RetainedVertices;
+        try
+        {
         var camera=new DxfCameraProjection(view,clipLateral);var shapes=new List<ClippedShape>();
-        foreach(var entity in entities){LoadingContext.Check();shapes.Add(camera.Clip(entity,ref work));}
+        foreach(var entity in entities){LoadingContext.Check();shapes.Add(camera.Clip(entity,budget));}
         double low=double.PositiveInfinity,high=double.NegativeInfinity;
         void Include(Point3D p){low=Math.Min(low,p.Z);high=Math.Max(high,p.Z);}
         foreach(var shape in shapes)
@@ -157,7 +173,11 @@ internal sealed class DxfCameraProjection
         if(!double.IsFinite(low)||!double.IsFinite(high)){low=-1;high=1;}
         if(high-low<1e-12*Math.Max(1,Math.Max(Math.Abs(high),Math.Abs(low))))
         {double pad=Math.Max(1,Math.Max(Math.Abs(high),Math.Abs(low)))*1e-6;low-=pad;high+=pad;}
-        return Array.AsReadOnly(shapes.Select(shape=>camera.Project(shape,low,high)).ToArray());
+        var result=Array.AsReadOnly(shapes.Select(shape=>camera.Project(shape,low,high)).ToArray());
+        budget.RetainedVertices=retainedStart+result.Sum(e=>(long)e.DisplayGeometry3D!.Lines.Count*2+e.DisplayGeometry3D.Triangles.Count*3+e.DisplayGeometry3D.Dots.Count*4);
+        return result;
+        }
+        catch{budget.RetainedVertices=retainedStart;throw;}
     }
     internal static DxfEntity Project(DxfEntity source,DxfModelView view)
     {long work=0;return Prepare(view,new[]{source},ref work)[0];}

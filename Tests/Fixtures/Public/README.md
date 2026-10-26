@@ -9,10 +9,13 @@ Downloaded 2026-10-21. Tests use these committed copies offline; no private draw
 | colors.dxf | [Upstream](https://github.com/mozman/ezdxf/blob/master/examples_dxf/colors.dxf) | 151817 | 70c12f1e3fd291c4ab02df7628624956fce315263c0ebcb18734d0b6e5b9974a |
 | viewport_frozen_layers.dxf | [Upstream](https://github.com/mozman/ezdxf/blob/master/examples_dxf/viewport_frozen_layers.dxf) | 73504 | c04a78677627e94c0056b2c01f641770439668932bd2288392ae9ec654a5e222 |
 | torus_r2000.dxf | [Upstream](https://github.com/mozman/ezdxf/blob/master/exploration/acis/torus_r2000.dxf) | 150779 | d630733aaeb3702a374ad9fef4f4dfaa4001eb6a7f82f72ef2f780ddcdac197e |
+| 3dsolids.dxf | [Upstream](https://github.com/mozman/ezdxf/blob/master/examples/acistools/3dsolids.dxf) | 161075 | 8193d9917354a9165d500098aa31209218f0b3d6bf3b24632b89003295806c4d |
 
 The torus fixture was added on 2026-10-26. Its SAT version 400 body contains one complete, untrimmed torus face and no boundary edges. The actual surface is tessellated for display (major radius 32, minor radius 10, body translation 128,135,0). The resulting entity has no measurable curves; document queries return NoGeometry and interactive picking is disabled. The immutable XYZ mesh is retained for camera projection.
 
 Upstream repositories publish under MIT; retain the adjacent dxf-parser-LICENSE.txt and ezdxf-LICENSE.txt notices with these fixtures. Files are unmodified.
+
+The compact solids fixture was added on 2026-10-26. It contains four displayed model-space solids and an additional solid record in an unused block definition. Its saved oblique *ACTIVE model VPORT is restored by the public control; the original XY view remains available for measurement. Both viewpoints have GPU captures in the regression report.
 
 ## Current parser coverage
 

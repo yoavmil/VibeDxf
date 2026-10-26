@@ -37,7 +37,7 @@ internal sealed class DrawingRenderer : IDisposable
             o.color.a *= (flags & 2) ? min(style.y, style.z) : style.z;
             return o;
         }
-        float4 Project3D(float3 p) { return float4(Linear(p.xy) + float2(row0.z,row1.z), min(1,p.z+pad.z),1); }
+        float4 Project3D(float3 p) { return float4(Linear(p.xy) + float2(row0.z,row1.z), min(1,p.z*(1+pad.z)),1); }
         VSOut LineVS(float3 p : POSITION, float4 c : COLOR, uint g : GROUP) { return Shade(Project3D(p), c, g); }
         VSOut PointVS(float3 p : POSITION, float4 c : COLOR, uint g : GROUP, uint id : SV_VertexID)
         {
@@ -235,7 +235,7 @@ internal sealed class DrawingRenderer : IDisposable
         }
         var nextModel = Collect(modelEntities.ToArray(), origin);
         var nextPapers = layouts.Select(l => Collect(l.Entities.ToArray(), l.Origin)).ToArray();
-                var nextProjected = (projectedViewports??[]).ToDictionary(v=>v,v=>
+                var nextProjected = (projectedViewports??[]).Where(v=>v.ProjectedEntities!=null).ToDictionary(v=>v,v=>
         {
             var entities=v.ProjectedEntities!.ToArray();var bounds=entities.Aggregate(System.Windows.Rect.Empty,(r,e)=>{r.Union(e.Bounds);return r;});
             var center=bounds.IsEmpty?default:new System.Windows.Point(bounds.X+bounds.Width/2,bounds.Y+bounds.Height/2);
@@ -340,7 +340,7 @@ internal sealed class DrawingRenderer : IDisposable
             context.PSSetConstantBuffer(0, constantBuffer);
             context.VSSetShaderResource(0, groupView!);
             var camera = new System.Windows.Media.Matrix(scale, 0, 0, -scale, offset.X, offset.Y);
-            if (paper == null) { context.RSSetState(rasterizer); Draw(modelView!=null&&projectedParts.TryGetValue(modelView,out var displayed)?displayed:model, camera, dipScale, lineColor, 1, monochrome); }
+            if (paper == null) { context.RSSetState(rasterizer); Draw(modelView!=null&&projectedParts.TryGetValue(modelView,out var displayed)?displayed:model, (modelView?.ModelToPaper??System.Windows.Media.Matrix.Identity)*camera, dipScale, lineColor, 1, monochrome); }
             else
             {
                 context.RSSetState(scissorRasterizer);

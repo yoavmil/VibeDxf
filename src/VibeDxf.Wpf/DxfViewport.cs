@@ -125,7 +125,8 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     }
     private void ApplyLayout()
     {
-        bounds = Layout?.Bounds ?? (ModelView?.Window?.ProjectedEntities?.Aggregate(Rect.Empty,(r,e)=>{r.Union(e.Bounds);return r;}) ?? Document!.Bounds);
+        bounds=Layout?.Bounds??ModelView?.Window?.ProjectedEntities?.Aggregate(Rect.Empty,(r,e)=>{r.Union(e.Bounds);return r;})??Document!.Bounds;
+        if(Layout==null&&ModelView?.Window is {ProjectedEntities:null} window&&!bounds.IsEmpty)bounds=Rect.Transform(bounds,window.ModelToPaper);
         RebuildIndexes();
         ClearSelection(); if(ModelView!=null&&Layout==null)FrameSavedView();else Fit(); LayoutChanged?.Invoke();
     }
