@@ -62,7 +62,6 @@ public sealed class CurvedSolidChecks
         var fields=Ellipse(ratio:0.5,tilted:tilted);var doc=Document(fields);var solid=doc.Entities.Single(e=>e.Kind=="3DSOLID");
         Assert.True(solid.IsApproximate);Assert.True(solid.Curves.Count>10);Assert.All(solid.Curves,c=>Assert.True(c.IsLine));
         Assert.Null(new MidpointIndex([solid]).Find(solid.Curves[0].At(0.5),1e-8));
-        Assert.Contains(doc.RenderingWarnings.Keys,n=>n.Contains("0.0001"));
         for(int i=0;i<=1000;i++)
         {
             double t=Math.Tau*i/1000;var p=new Point(3*Math.Cos(t),tilted?0:1.5*Math.Sin(t));

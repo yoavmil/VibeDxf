@@ -320,7 +320,6 @@ internal static class DxfReader
                                 return new DxfEntity("3DSOLID",sourceLayer,sourceHandle,boundary)
                                 {IsApproximate=approximate,RenderDots=boundary.Where(c=>c.Start==c.End).Select(c=>c.Start).Distinct().ToArray()};
                             };
-                            if(solidApproximate)Note("3DSOLID projected ellipse edges approximated within 0.0001 drawing units before INSERT scaling");
                             Note("3DSOLID shown as XY boundary wireframe; distances are projected, not 3D");
                         }
                         catch(NotSupportedException ex){Skip(ex.Message);}
