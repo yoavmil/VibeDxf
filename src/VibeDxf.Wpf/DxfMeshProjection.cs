@@ -77,7 +77,7 @@ internal static class DxfMeshProjection
         }
         warn("MESH is shown as an XY-projected wireframe; measurements ignore Z");
         if (subdivisions > 0) warn("MESH subdivision smoothing is shown as its level-0 control wireframe");
-        return new DxfEntity("MESH", layer, handle, curves) { IsApproximate = subdivisions > 0, RenderDots = dots.ToArray() };
+        return new DxfEntity("MESH", layer, handle, curves) { IsApproximate = subdivisions > 0, RenderDots = dots.ToArray(), SpatialGeometry=new(edges.Select(e=>new DxfSpatialLine(new(vertices[e.A].X,vertices[e.A].Y,elevations[e.A]),new(vertices[e.B].X,vertices[e.B].Y,elevations[e.B]))),[],[],subdivisions>0) };
         string Take(int code)
         {
             if (cursor >= end || fields[cursor].Code != code) throw new InvalidDataException($"MESH expected group {code}.");

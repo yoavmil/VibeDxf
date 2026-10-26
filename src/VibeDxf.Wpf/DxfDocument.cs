@@ -55,7 +55,11 @@ public sealed record DxfViewportWindow(string Handle, Rect Paper, Matrix ModelTo
     /// <summary>True for a nonplan orthographic view; its projected geometry is display-only.</summary>
     public bool IsOrthographic3D { get; internal init; }
     /// <summary>Whether model XY picking, snapping and coordinate conversion are supported through this window.</summary>
-    public bool IsInteractive => !IsOrthographic3D;
+    public bool IsInteractive => CameraView?.IsInteractive ?? !IsOrthographic3D;
+    /// <summary>Whether this layout window uses perspective projection.</summary>
+    public bool IsPerspective => CameraView?.Perspective ?? false;
+    internal DxfModelView? CameraView { get; init; }
+    internal bool HasProjection => CameraView != null || IsOrthographic3D;
     internal Func<System.Windows.Media.Media3D.Point3D,Point>? ProjectPoint3D { get; init; }
     internal IReadOnlyList<DxfEntity>? ProjectedEntities { get; set; }
 }
@@ -92,6 +96,9 @@ public sealed class DxfDocument
         DocumentId = Guid.NewGuid(); RevisionId = Guid.NewGuid(); Units = source.Units;
         Layers = Array.AsReadOnly(source.Layers.Select((l, i) => l with { Id = i }).ToArray());
         Groups = Array.AsReadOnly(source.Groups.ToArray());
+        for(int i=0;i<source.ModelViews.Count;i++)source.ModelViews[i].Id=new(DocumentId,i);
+        ModelViews=Array.AsReadOnly(source.ModelViews.ToArray());
+        DefaultModelView=source.DefaultModelView?.Id;
         long next = 1;
         void Assign(IEnumerable<DxfEntity> entities, DxfCoordinateContext context)
         {
@@ -134,6 +141,10 @@ public sealed class DxfDocument
     public IReadOnlyList<DxfEntity> AllEntities { get; }
     /// <summary>Retained paper layouts in source tab order.</summary>
     public IReadOnlyList<DxfLayout> Layouts { get; }
+    /// <summary>Saved VPORT configurations and named VIEW definitions in source order.</summary>
+    public IReadOnlyList<DxfModelView> ModelViews { get; }
+    /// <summary>The first active model VPORT, or legacy header fallback when no active VPORT exists.</summary>
+    public DxfModelViewId? DefaultModelView { get; }
     /// <summary>Read-only saved layer definitions in stable file order; view visibility is independent.</summary>
     public IReadOnlyList<DxfLayer> Layers { get; }
     internal IReadOnlyList<(int Layer, EntityCategory Category)> Groups { get; }

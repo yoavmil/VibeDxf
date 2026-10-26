@@ -31,6 +31,7 @@ internal static class DxfReader
         var blockNames=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         var dimStyles=new Dictionary<string,Record>(StringComparer.OrdinalIgnoreCase);
         var layoutRecords=new List<Record>();var layerRecords=new List<Record>();
+        var cameraRecords=new List<Record>();
         var entities=new List<Record>();string section="";List<Record>? blockRecords=null;
         var solidData=new Dictionary<string,IReadOnlyList<(int Code,string Value)>?>(StringComparer.OrdinalIgnoreCase);
         for(int i=0;i<pairs.Count;)
@@ -44,6 +45,7 @@ internal static class DxfReader
             else if(section=="TABLES"&&record.Kind=="BLOCK_RECORD")blockNames[record.S(5)]=record.S(2);
             else if(section=="TABLES"&&record.Kind=="DIMSTYLE")dimStyles[record.S(2)]=record;
             else if(section=="TABLES"&&record.Kind=="LAYER")layerRecords.Add(record);
+            else if(section=="TABLES"&&record.Kind is "VPORT" or "VIEW")cameraRecords.Add(record);
             else if(section=="OBJECTS"&&record.Kind=="LAYOUT")layoutRecords.Add(record);
             else if(section=="ACDSDATA"&&record.Kind=="ACDSRECORD")
             {
@@ -122,8 +124,6 @@ internal static class DxfReader
             bool first=!layout.SheetViewSeen;layout.SheetViewSeen=true;
             if(r.N(69)==1||(first&&r.N(69)==0))return;
             if((flags&131072)!=0||(layout==active&&r.Fields.Any(f=>f.Code==68)&&r.N(68)==0))return;
-            if((flags&1)!=0){Skip("VIEWPORT (perspective view)");return;}
-            if((flags&6)!=0){Skip("VIEWPORT (depth clipping)");return;}
             bool spatial=Math.Abs(r.N(16))>1e-9||Math.Abs(r.N(26))>1e-9||r.N(36,1)<=0;
             Func<Point3D,Point>? project=null;
             if(spatial)
@@ -131,10 +131,15 @@ internal static class DxfReader
                 try { project=DxfOrthographicProjection.Create(new(r.N(16),r.N(26),r.N(36,1)),new(r.N(17),r.N(27),r.N(37))); }
                 catch(InvalidDataException){Skip("VIEWPORT (invalid direction)");return;}
             }
+            if(project!=null){var baseProject=project;var rotation=System.Windows.Media.Matrix.Identity;rotation.Rotate(r.N(51));project=p=>rotation.Transform(baseProject(p));}
+            bool cameraProjection=spatial||(flags&7)!=0;
+            DxfModelView? camera=null;
+            try { if(cameraProjection)camera=DxfSavedViewReader.Read(r.S(5),DxfModelViewSource.Viewport,r.Fields.Select(f=>(f.Code,f.Value)).ToArray(),paper:true); }
+            catch(InvalidDataException){Skip("VIEWPORT (invalid view)");return;}
             double width=r.N(40),height=r.N(41),viewHeight=r.N(45);
             if(!(width>0&&height>0&&viewHeight>0)){Skip("VIEWPORT (invalid view)");return;}
             var scale=height/viewHeight;var transform=System.Windows.Media.Matrix.Identity;
-            if(!spatial)transform.Translate(-r.N(17),-r.N(27));transform.Scale(scale,scale);transform.Rotate(r.N(51));
+            if(!cameraProjection)transform.Translate(-r.N(17),-r.N(27));transform.Scale(scale,scale);if(!cameraProjection)transform.Rotate(r.N(51));
             transform.Translate(r.N(10)-r.N(12)*scale,r.N(20)-r.N(22)*scale);
             var paper=new Rect(r.N(10)-width/2,r.N(20)-height/2,width,height);
             // Group 331 lists layers frozen in this viewport only, by LAYER table handle.
@@ -144,7 +149,7 @@ internal static class DxfReader
             var frame=new DxfEntity("VIEWPORT",r.S(8,"0"),r.S(5),DxfPrimitives.Outline([corners]))
                 {Category=EntityCategory.ViewportFrame,Color=ColorOf(r,r.S(8,"0"),null),ColorSource=new(Int(r,62),Int(r,420))};
             layout.Entities.Add(frame);
-            layout.Viewports.Add(new DxfViewportWindow(r.S(5),paper,transform){FrozenLayers=frozen,FrameEntity=frame,IsOrthographic3D=spatial,ProjectPoint3D=project});
+            layout.Viewports.Add(new DxfViewportWindow(r.S(5),paper,transform){FrozenLayers=frozen,FrameEntity=frame,IsOrthographic3D=spatial&&(flags&1)==0,ProjectPoint3D=project,CameraView=camera});
             if(spatial)Note("VIEWPORT orthographic 3D projection is display-only; picking, snapping and model XY anchors are unavailable");
             if((flags&65536)!=0&&r.Fields.Any(f=>f.Code==340))Note("VIEWPORT non-rectangular clipping is shown as its rectangle");
         }
@@ -221,7 +226,9 @@ internal static class DxfReader
                     entity.ColorSource=sourceOverride??colorSource;
                     var placement=matrix;var placementZScale=zScale*recordZSign;var placementZOffset=zOffset;var elevation=recordElevation;var name=path+entity.Handle;var resolved=colorOverride??color;
                     var sourceProjection=entity.Projection3D;
+                    var spatial=entity.SpatialGeometry??DxfSpatialGeometry.FromPlanar(entity,elevation);
                     var transformed=DxfPrimitives.Transform(entity,placement,layer,name,category,resolved);
+                    transformed.SpatialGeometry=spatial.Transform(placement,placementZScale,placementZOffset);
                     transformed.Projection3D=projection=>
                     {
                         Point Map(Point3D p){LoadingContext.Check();var q=placement.Transform(new Point(p.X,p.Y));return projection(new(q.X,q.Y,p.Z*placementZScale+placementZOffset));}
@@ -243,7 +250,7 @@ internal static class DxfReader
                 string S(int c,string fallback="")=>record.S(c,fallback);
                 double N(int c,double fallback=0)=>record.N(c,fallback);
                 Point P(int x,int y)=>new(N(x),N(y));
-                recordElevation=N(38,N(30));recordZSign=1;Func<Func<Point3D,Point>,DxfEntity>? sourceProjector=null;
+                recordElevation=N(38,N(30));recordZSign=1;Func<Func<Point3D,Point>,DxfEntity>? sourceProjector=null;DxfSpatialGeometry? sourceSpatial=null;
                 var recordLayer=S(8,"0");if(recordLayer=="0")recordLayer=inheritedLayer;
                 color=ColorOf(record,recordLayer,blockColor);
                 // OCS parallel to XY is supported, including a reversed normal. General 3D is intentionally excluded.
@@ -344,6 +351,7 @@ internal static class DxfReader
                         var solidCorners=new[]{new Point3D(N(10),N(20),N(30)),new Point3D(N(11),N(21),N(31)),
                             fields.Any(f=>f.Code==13)?new Point3D(N(13),N(23),N(33)):new Point3D(N(12),N(22),N(32)),new Point3D(N(12),N(22),N(32))}.Distinct().ToArray();
                         var solidLayer=S(8,"0");var solidHandle=S(5);
+                        sourceSpatial=new(solidCorners.Select((p,i)=>new DxfSpatialLine(p,solidCorners[(i+1)%solidCorners.Length])),Enumerable.Range(1,Math.Max(0,solidCorners.Length-2)).Select(i=>new DxfSpatialTriangle(solidCorners[0],solidCorners[i],solidCorners[i+1])),[]);
                         sourceProjector=projection=>{var contour=solidCorners.Select(projection).ToArray();return new DxfEntity("SOLID",solidLayer,solidHandle,DxfPrimitives.Outline([contour])){FillContours=[contour]};};
                         break;
                     case "TEXT":
@@ -439,6 +447,7 @@ internal static class DxfReader
                         curves.Add(Curve.Line(P(10,20),P(11,21)));
                         var lineStart=new Point3D(N(10),N(20),N(30));var lineEnd=new Point3D(N(11),N(21),N(31));
                         var lineLayer=S(8,"0");var lineHandle=S(5);
+                        sourceSpatial=new([new(lineStart,lineEnd)],[],[]);
                         sourceProjector=projection=>new DxfEntity("LINE",lineLayer,lineHandle,[Curve.Line(projection(lineStart),projection(lineEnd))]);
                         break;
                     case "RAY": case "XLINE":
@@ -508,7 +517,7 @@ internal static class DxfReader
                 }
                 if (curves.Count > 0) Add(new DxfEntity(p.Value,S(8,"0"),S(5),curves){FillContours=fill,Text=text,
                     RenderDots=p.Value=="3DSOLID"?curves.Where(c=>c.Start==c.End).Select(c=>c.Start).Distinct().ToArray():[],
-                    Projection3D=sourceProjector,IsApproximate=solidApproximate || p.Value is "SPLINE" or "TEXT" or "ATTDEF" or "ATTRIB"});
+                    SpatialGeometry=sourceSpatial,Projection3D=sourceProjector,IsApproximate=solidApproximate || p.Value is "SPLINE" or "TEXT" or "ATTDEF" or "ATTRIB"});
 
                 matrix=originalMatrix;
             }
@@ -535,15 +544,59 @@ internal static class DxfReader
             if(!groups.TryGetValue(key,out var group)){group=groups[key]=doc.Groups.Count;doc.Groups.Add(key);}
             entity.Group=group;
         }
+        // The first *ACTIVE VPORT is current; other active records retain tiled-window camera definitions.
+        int activeCount=0;
+        foreach(var record in cameraRecords)
+        {
+            if(doc.ModelViews.Count>=128){Note("Saved camera preparation limit reached");break;}
+            bool named=record.Kind=="VIEW";
+            if(named&&(((int)record.N(70)&1)!=0))continue;
+            bool current=!named&&record.S(2).Equals("*ACTIVE",StringComparison.OrdinalIgnoreCase);
+            string name=record.S(2,record.Kind);if(current)name=++activeCount==1?"Saved model view":$"Active tiled view {activeCount}";
+            try
+            {
+                var camera=DxfSavedViewReader.Read(name,named?DxfModelViewSource.NamedView:DxfModelViewSource.Viewport,record.Fields.Select(f=>(f.Code,f.Value)).ToArray(),named);
+                doc.ModelViews.Add(camera);if(current&&activeCount==1)doc.DefaultModelView=camera;
+            }
+            catch(InvalidDataException){Note(record.Kind+" camera has invalid parameters");}
+        }
+        if(activeCount==0)
+        {
+            var headers=new Dictionary<string,List<(int Code,string Value)>>();string? variable=null;
+            foreach(var pair in pairs)
+                if(pair.Code==9){variable=pair.Value;headers[variable]=[];}
+                else if(pair.Code==0)variable=null;
+                else if(variable!=null)headers[variable].Add((pair.Code,pair.Value));
+            if(headers.ContainsKey("$VIEWDIR")||headers.ContainsKey("$VIEWCTR")||headers.ContainsKey("$VIEWSIZE"))
+            {
+                var cameraFields=new List<(int Code,string Value)>();
+                void Copy(string name,int from,int to){if(headers.TryGetValue(name,out var values))foreach(var f in values)if(f.Code==from)cameraFields.Add((to,f.Value));}
+                foreach(var (from,to) in new[]{(10,16),(20,26),(30,36)})Copy("$VIEWDIR",from,to);
+                foreach(var (from,to) in new[]{(10,17),(20,27),(30,37)})Copy("$TARGET",from,to);
+                Copy("$VIEWCTR",10,12);Copy("$VIEWCTR",20,22);Copy("$VIEWSIZE",40,40);Copy("$VIEWTWIST",50,51);Copy("$LENSLENGTH",40,42);Copy("$VIEWMODE",70,71);
+                try {var camera=DxfSavedViewReader.Read("Legacy saved model view",DxfModelViewSource.Header,cameraFields);doc.ModelViews.Insert(0,camera);doc.DefaultModelView=camera;}
+                catch(InvalidDataException){Note("Header camera has invalid parameters");}
+            }
+        }
         long projectionWork=0;
+        // Existing layout windows and the current model view take priority over optional named views.
         foreach(var layout in doc.Layouts)
-            foreach(var window in layout.Viewports.Where(v=>v.IsOrthographic3D).ToArray())
-                try { window.ProjectedEntities=DxfOrthographicProjection.Prepare(window,doc.Entities,ref projectionWork); }
+            foreach(var window in layout.Viewports.Where(v=>v.HasProjection).ToArray())
+                try { window.ProjectedEntities=DxfCameraProjection.Prepare(window.CameraView!,doc.Entities,ref projectionWork); }
                 catch(Exception ex) when(ex is InvalidDataException or NotSupportedException)
                 {
                     layout.Viewports.Remove(window);if(window.FrameEntity!=null)layout.Entities.Remove(window.FrameEntity);
-                    Skip("VIEWPORT (unsupported projected geometry or limit)");
+                    Skip("VIEWPORT (unsupported projected geometry or limit)");Note("VIEWPORT projection: "+ex.Message);
                 }
+        foreach(var camera in doc.ModelViews.OrderBy(v=>ReferenceEquals(v,doc.DefaultModelView)?0:1))
+        {
+            try
+            {
+                var snapshot=DxfCameraProjection.Prepare(camera,doc.Entities,ref projectionWork,clipLateral:false);
+                camera.Window=new DxfViewportWindow(camera.Name,camera.Frame,System.Windows.Media.Matrix.Identity){CameraView=camera,ProjectedEntities=snapshot,IsOrthographic3D=!camera.Perspective&&!camera.IsInteractive};
+            }
+            catch(Exception ex) when(ex is InvalidDataException or NotSupportedException){Note("Saved camera could not be prepared: "+camera.Name+" ("+ex.Message+")");}
+        }
         // XYZ callbacks are load-time builders only. Do not retain source records after publication.
         foreach(var entity in all)entity.Projection3D=null;
         // Fills are independent and Triangulate is pure; the renderer still concatenates them in entity order.

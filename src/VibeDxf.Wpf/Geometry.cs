@@ -236,10 +236,12 @@ public sealed class DxfEntity
     public uint Color { get; internal init; } = DxfColors.White;
     internal int Group { get; set; }
     internal Func<Func<System.Windows.Media.Media3D.Point3D,Point>,DxfEntity>? Projection3D { get; set; }
+    internal DxfSpatialGeometry? SpatialGeometry { get; set; }
+    internal DxfSpatialGeometry? DisplayGeometry3D { get; init; }
     /// <summary>Whether geometry includes a ray or infinite straight line.</summary>
     public bool IsUnbounded => Curves.Any(c=>c.IsUnbounded);
     /// <summary>Finite fit bounds in this coordinate space; unbounded curves contribute their base point only.</summary>
-    public Rect Bounds { get; }
+    public Rect Bounds { get; internal init; }
     private static IReadOnlyList<IReadOnlyList<Point>> Freeze(IEnumerable<IReadOnlyList<Point>> value)=>
         Array.AsReadOnly(value.Select(p=>(IReadOnlyList<Point>)Array.AsReadOnly(p.ToArray())).ToArray());
     /// <summary>Tests even/odd containment in filled measurement regions; boundary-only entities normally have no interior.</summary>

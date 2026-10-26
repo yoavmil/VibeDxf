@@ -38,7 +38,7 @@
  <DockPanel>
   <Menu DockPanel.Dock="Top" Background="#CBD7E3" Foreground="#18212B" Padding="8,5">
    <MenuItem Header="_File"><MenuItem Header="_Open DXF…" InputGestureText="Ctrl+O" Click="OpenClicked"/></MenuItem>
-   <MenuItem Header="_View"><MenuItem x:Name="PanelMenu" Header="_Layers panel" IsCheckable="True" InputGestureText="Ctrl+L" Click="PanelMenuClicked"/></MenuItem>
+   <MenuItem Header="_View"><MenuItem x:Name="PanelMenu" Header="_Layers panel" IsCheckable="True" InputGestureText="Ctrl+L" Click="PanelMenuClicked"/><MenuItem x:Name="ModelCameraMenu" Header="Model _camera"/></MenuItem>
   </Menu>
   <Border DockPanel.Dock="Bottom" Background="#202C39" Padding="14,9">
    <Grid>

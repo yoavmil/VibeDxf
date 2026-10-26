@@ -27,6 +27,7 @@ public partial class MainWindow : Window
                 : "Select two elements to measure their distance.";
         };
         Layers.Attach(Viewer);
+        Viewer.ModelViewChanged += (_,_)=>RefreshModelCameras();
         // Tab 0 is model space; tab i shows layout i−1.
         Viewer.LayoutChanged += (_, _) => LayoutTabs.SelectedIndex = Viewer.ActiveLayout is { } id ? Viewer.Document!.Layouts.ToList().FindIndex(l => l.Id == id) + 1 : 0;
         PreviewKeyDown += async (_, e) =>
@@ -48,6 +49,19 @@ public partial class MainWindow : Window
             var args = Environment.GetCommandLineArgs();
             if (args.Length > 1 && File.Exists(args[1])) await OpenFile(args[1]);
         };
+    }
+    private void RefreshModelCameras()
+    {
+        ModelCameraMenu.Items.Clear();
+        var xy=new System.Windows.Controls.MenuItem{Header="Original XY / measurement",IsCheckable=true,IsChecked=Viewer.ActiveModelView==null};
+        xy.Click+=(_,_)=>Viewer.ActiveModelView=null;ModelCameraMenu.Items.Add(xy);
+        foreach(var camera in Viewer.Document?.ModelViews??[])
+        {
+            var item=new System.Windows.Controls.MenuItem{Header=camera.Name+(camera.Perspective?" (perspective)":camera.IsInteractive?"":" (3D)"),IsCheckable=true,IsChecked=Viewer.ActiveModelView==camera.Id,IsEnabled=camera.IsSupported};
+            item.Click+=(_,_)=>{Viewer.ActiveLayout=null;Viewer.ActiveModelView=camera.Id;};ModelCameraMenu.Items.Add(item);
+        }
+        if(Viewer.ActiveLayout==null&&Viewer.ActiveModelView is { } id&&Viewer.Document?.ModelViews[id.Value].IsInteractive==false)
+            Measurement.Text="Saved 3D camera — display only. Choose Original XY / measurement to measure.";
     }
     private void StrategyChanged(object sender, RoutedEventArgs e)
     {

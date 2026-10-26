@@ -105,7 +105,7 @@ internal sealed class DxfPolylineProjection
             if ((flags & 1) != 0) Edge(points.Count - 1, 0);
         }
         if (curves.Count == 0) throw new InvalidDataException("no visible edges");
-        return new("POLYLINE", layer, handle, curves) { RenderDots = dots.ToArray() };
+        return new("POLYLINE", layer, handle, curves) { RenderDots = dots.ToArray(), SpatialGeometry=new(emitted.Select(e=>new DxfSpatialLine(points[e.A],points[e.B])),[],[]) };
     }
 
     private static int Integer(IReadOnlyList<(int Code, string Value)> fields, int code)
