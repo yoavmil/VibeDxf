@@ -6,17 +6,21 @@ using System.Windows.Media.Media3D;
 
 namespace VibeDxf.Wpf;
 
-// A bounded ACIS boundary reader, not a solid modelling kernel. Actual straight and
-// elliptical edge topology is projected; edge-free torus faces have a separate display mesh.
+// A bounded ACIS boundary reader, not a solid modelling kernel. Actual straight,
+// elliptical and explicit spline edges are projected; edge-free tori use a display mesh.
 // Unsupported curves never become endpoint chords or invented boundary edges.
 // Format references: Autodesk's 3DSOLID DXF reference and ezdxf's MIT-licensed
 // acis/{const,sab,sat,entities}.py and sections/acdsdata.py. No upstream code is embedded.
-internal static class DxfSolidProjection
+internal static partial class DxfSolidProjection
 {
     private const int MaxBytes = 16 * 1024 * 1024, MaxRecords = 200_000, MaxTokens = 2_000_000;
     private readonly record struct V3(double X, double Y, double Z);
     private readonly record struct Token(int Kind, object Value);
     private sealed record Node(string Name, Token[] Data);
+    private static string TopologyName(Node node) => node.Name switch
+    {
+        "tcoedge-coedge" => "coedge", "tedge-edge" => "edge", "tvertex-vertex" => "vertex", _ => node.Name
+    };
     private static InvalidDataException Invalid() => new("Invalid ACIS solid data.");
     private static NotSupportedException Unsupported(string reason) => new($"3DSOLID ({reason})");
 
@@ -255,7 +259,7 @@ internal static class DxfSolidProjection
     private static double Real(Token token) => token.Value is double d ? d : throw Invalid();
     private static Node Refer(List<Node> nodes, int pointer, string name)
     {
-        if (pointer < 0 || pointer >= nodes.Count || nodes[pointer].Name != name) throw Invalid();
+        if (pointer < 0 || pointer >= nodes.Count || TopologyName(nodes[pointer]) != name) throw Invalid();
         return nodes[pointer];
     }
     private static V3 Position(List<Node> nodes, int vertex, bool binary)
@@ -311,6 +315,8 @@ internal static class DxfSolidProjection
                 if (index < 0 || index >= nodes.Count) throw Invalid();
                 if (!seen.Add(index)) continue;
                 var node = nodes[index];
+                if(node.Name is "tcoedge-coedge" or "tedge-edge" or "tvertex-vertex")
+                {approximate=true;spatialApproximate=true;}
                 if (node.Name == "body" && index != body.Index) throw Unsupported("cross-linked ACIS bodies");
                 if (node.Name is "pattern" or "wire" or "subshell") throw Unsupported($"ACIS {node.Name} topology");
                 void Link(int field,string kind,bool optional=true)
@@ -318,11 +324,11 @@ internal static class DxfSolidProjection
                     int pointer=Ptr(node,field);
                     if(pointer==-1&&optional)return;
                     if(pointer<0||pointer>=nodes.Count||
-                        !(kind=="surface"?nodes[pointer].Name.EndsWith("-surface",StringComparison.Ordinal):nodes[pointer].Name==kind))throw Invalid();
+                        !(kind=="surface"?nodes[pointer].Name.EndsWith("-surface",StringComparison.Ordinal):TopologyName(nodes[pointer])==kind))throw Invalid();
                 }
-                if(node.Name is "body" or "lump" or "shell" or "face" or "loop" or "coedge" or "edge" or "vertex" or "point" or "straight-curve" or "ellipse-curve")
+                if(TopologyName(node) is "body" or "lump" or "shell" or "face" or "loop" or "coedge" or "edge" or "vertex" or "point" or "straight-curve" or "ellipse-curve")
                     if(Ptr(node,0)!=-1)throw Unsupported("patterned ACIS topology");
-                switch(node.Name)
+                switch(TopologyName(node))
                 {
                     case "body": Link(1,"lump",false);Link(2,"wire");Link(3,"transform");break;
                     case "lump": Link(1,"lump");Link(2,"shell",false);Link(3,"body",false);break;
@@ -348,7 +354,7 @@ internal static class DxfSolidProjection
                     case "coedge": Link(1,"coedge",false);Link(2,"coedge",false);Link(3,"coedge");Link(4,"edge",false);Link(6,"loop",false);break;
                     case "vertex": Link(1,"edge",false);Link(binary?3:2,"point",false);break;
                 }
-                if (node.Name == "edge")
+                if (TopologyName(node) == "edge")
                 {
                     if (Ptr(node, 0) != -1) throw Unsupported("patterned ACIS edge");
                     int curvePointer = Ptr(node, 6);
@@ -360,10 +366,22 @@ internal static class DxfSolidProjection
                     V3 VectorAt(int index) => binary
                         ? At(underlying,index).Value is V3 v ? v : throw Invalid()
                         : new(Real(At(underlying,index)),Real(At(underlying,index+1)),Real(At(underlying,index+2)));
-                    void Matches(V3 vertex,V3 expected)
+                    void Matches(int vertexPointer,V3 vertex,V3 expected)
                     {
                         double scale=1+Math.Max(Math.Max(Math.Abs(vertex.X),Math.Abs(vertex.Y)),Math.Abs(vertex.Z));
-                        if(Math.Abs(vertex.X-expected.X)>1e-7*scale||Math.Abs(vertex.Y-expected.Y)>1e-7*scale||Math.Abs(vertex.Z-expected.Z)>1e-7*scale)throw Invalid();
+                        double tolerance=1e-7*scale;
+                        var sourceVertex=Refer(nodes,vertexPointer,"vertex");
+                        if(sourceVertex.Name=="tvertex-vertex")
+                        {
+                            // This SAB profile stores a legacy -1 and two equal spatial bounds.
+                            // Keep the curve at its saved parameters; never snap it to the tolerant vertex.
+                            if(!binary||sourceVertex.Data.Length!=7||Real(At(sourceVertex,4))!=-1)throw Unsupported("ACIS tolerant vertex layout");
+                            double bound=Real(At(sourceVertex,5));
+                            if(bound<0||Real(At(sourceVertex,6))!=bound)throw Unsupported("ACIS tolerant vertex bounds");
+                            tolerance=Math.Max(tolerance,bound);
+                        }
+                        double distance=new Vector3D(vertex.X-expected.X,vertex.Y-expected.Y,vertex.Z-expected.Z).Length;
+                        if(!double.IsFinite(distance)||distance>tolerance)throw Invalid();
                     }
                     void Append(Curve curve)
                     {
@@ -382,9 +400,11 @@ internal static class DxfSolidProjection
                         var origin=VectorAt(1);var direction=VectorAt(binary?2:4);
                         if(direction==default)throw Invalid();
                         V3 Evaluate(double t)=>new(Finite(origin.X+t*direction.X),Finite(origin.Y+t*direction.Y),Finite(origin.Z+t*direction.Z));
-                        Matches(start,Evaluate(first));Matches(end,Evaluate(last));
-                        Append(Curve.Line(XY(start),XY(end)));
-                        spatialLines.Add(new(XYZ(start),XYZ(end)));
+                        Matches(Ptr(node,1),start,Evaluate(first));Matches(Ptr(node,3),end,Evaluate(last));
+                        V3 a=nodes[Ptr(node,1)].Name=="tvertex-vertex"?Evaluate(first):start;
+                        V3 b=nodes[Ptr(node,3)].Name=="tvertex-vertex"?Evaluate(last):end;
+                        Append(Curve.Line(XY(a),XY(b)));
+                        spatialLines.Add(new(XYZ(a),XYZ(b)));
                     }
                     else if(underlying.Name=="ellipse-curve")
                     {
@@ -401,7 +421,7 @@ internal static class DxfSolidProjection
                             Finite(center.Y+major.Y*Math.Cos(t)+minor.Y*Math.Sin(t)),Finite(center.Z+major.Z*Math.Cos(t)+minor.Z*Math.Sin(t)));
                         double sweep=last-first;
                         if(!double.IsFinite(sweep)||Math.Abs(sweep)<1e-14||Math.Abs(sweep)>Math.Tau+1e-9)throw Invalid();
-                        Matches(start,Evaluate(first));Matches(end,Evaluate(last));
+                        Matches(Ptr(node,1),start,Evaluate(first));Matches(Ptr(node,3),end,Evaluate(last));
                         // Retain actual XYZ curve samples independently of the XY representation.
                         var majorWorld=XYZ(new(center.X+major.X,center.Y+major.Y,center.Z+major.Z))-XYZ(center);
                         var minorWorld=XYZ(new(center.X+minor.X,center.Y+minor.Y,center.Z+minor.Z))-XYZ(center);
@@ -437,7 +457,24 @@ internal static class DxfSolidProjection
                             approximate=true;
                         }
                     }
+                    else if(underlying.Name=="intcurve-curve")
+                    {
+                        var spline=ReadSpline(underlying,binary);
+                        double sign=spline.Reversed?-1:1;
+                        var a=spline.Geometry.Evaluate(sign*first);var b=spline.Geometry.Evaluate(sign*last);
+                        Matches(Ptr(node,1),start,new(a.X,a.Y,a.Z));Matches(Ptr(node,3),end,new(b.X,b.Y,b.Z));
+                        // The affine projection can magnify XYZ chord error. Bound both representations.
+                        var anchor=XYZ(new(a.X,a.Y,a.Z));var center=projection(anchor);
+                        double amplification=Math.Sqrt(new[]{new Vector3D(1,0,0),new(0,1,0),new(0,0,1)}
+                            .Sum(axis=>(projection(anchor+axis)-center).LengthSquared));
+                        if(!double.IsFinite(amplification))throw Invalid();
+                        var lines=spline.Geometry.Flatten(sign*first,sign*last,p=>XYZ(new(p.X,p.Y,p.Z)),SplineGeometry.Tolerance/Math.Max(1,amplification));
+                        Point ProjectPoint(Point3D p){var q=projection(p);return new(Finite(q.X),Finite(q.Y));}
+                        foreach(var line in lines){Append(Curve.Line(ProjectPoint(line.Start),ProjectPoint(line.End)));spatialLines.Add(line);}
+                        approximate=true;spatialApproximate=true;
+                    }
                     else throw Unsupported("unsupported ACIS curve: "+underlying.Name);
+                    if(spatialLines.Count>MaxRecords)throw Unsupported("spatial edge limit");
                 }
                 foreach (var token in node.Data)
                     if (token.Kind == 12)

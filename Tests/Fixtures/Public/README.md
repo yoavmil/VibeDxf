@@ -13,7 +13,7 @@ Downloaded 2026-10-21. Tests use these committed copies offline; no private draw
 
 The torus fixture was added on 2026-10-26. Its SAT version 400 body contains one complete, untrimmed torus face and no boundary edges. The actual surface is tessellated for display (major radius 32, minor radius 10, body translation 128,135,0). The resulting entity has no measurable curves; document queries return NoGeometry and interactive picking is disabled. The immutable XYZ mesh is retained for camera projection.
 
-Upstream repositories publish under MIT; retain the adjacent dxf-parser-LICENSE.txt and ezdxf-LICENSE.txt notices with these fixtures. Files are unmodified.
+The dxf-parser and ezdxf repositories publish under MIT; retain the adjacent dxf-parser-LICENSE.txt and ezdxf-LICENSE.txt notices with these fixtures. Files are unmodified.
 
 The compact solids fixture was added on 2026-10-26. It contains four displayed model-space solids and an additional solid record in an unused block definition. Its saved oblique *ACTIVE model VPORT is restored by the public control; the original XY view remains available for measurement. Both viewpoints have GPU captures in the regression report.
 
@@ -36,3 +36,9 @@ PublicDrawingAndGpuUpload has two Test Explorer cases. Each checks exact loaded 
 The report includes one zoomed GPU frame for every one of the 89 placed hatch instances (73 in model space, 4 per sheet title block). Orange shows its hatch strokes and stored contour; white shows the surrounding drawing. The report search filters image cards as well as test results. The audit checks every continuous ANSI31 stroke against its boundary and tests fill triangle containment. Synthetic cases cover solid and patterned fills, concavity, islands, bulges, circular/elliptic/spline edges, rational weights, complementary clockwise angles, multiple pattern families, dash phases, dots, transforms, large origins and malformed/unsupported data.
 
 Hatch 95F2 is non-associative and has no boundary source handles. Its arc centers differ from nearby outline 14C2 by approximately (+0.000474752237, -0.010236703965) drawing units. Tests preserve these distinct source coordinates; loading a hatch must not silently relocate it to a nearby outline.
+
+## Waschbecken ACIS regression
+
+`Waschbecken-2018.zip` contains the unmodified `Waschbecken-2018.dxf` (14,486,961 bytes; SHA-256 `99d2dc2f185fda5fe27eac8813e738d96e2c942d66e8cfa98c144145cfdb13d7`), compressed solely to keep the fixture smaller. The drawing was shared in the `Waschbecken2.zip` attachment to [LibreDWG issue #1071](https://github.com/LibreDWG/libredwg/issues/1071). This issue attachment is separate from the MIT fixtures above; its provenance does not establish an MIT license. It is test data and is not packaged in the NuGet library.
+
+All 13 model-space solids (handles 346 through 352) load with no skipped records. Before the spline/tolerant-topology change only 34C, 34E and 350 loaded. Tests verify the decompressed SHA-256, handles, nonempty XYZ/XY boundaries and a supported saved model camera, and capture both XY and saved-view GPU output. The sink remains a boundary wireframe; no trimmed face mesh or hidden-line removal is claimed.
