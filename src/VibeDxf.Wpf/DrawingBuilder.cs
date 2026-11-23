@@ -25,6 +25,7 @@ internal sealed class DrawingBuilder
     public List<(int Layer, EntityCategory Category)> Groups { get; } = [];
     public Dictionary<string, int> Skipped { get; } = [];
     public string Units { get; set; } = "drawing units (unspecified)";
+    public DrawingFormat Format { get; set; } = DrawingFormat.Dxf;
     public Dictionary<string,int> RenderingWarnings { get; } = [];
     public string? UnsupportedWarning => Skipped.Count == 0 && RenderingWarnings.Count == 0 ? null :
         (Skipped.Count>0 ? $"This drawing is only partially displayed. {Skipped.Values.Sum():N0} unsupported records were skipped.\n\n" : "Some drawing features are displayed approximately.\n\n") +

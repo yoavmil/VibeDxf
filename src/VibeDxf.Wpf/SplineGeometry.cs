@@ -13,7 +13,7 @@ internal static class SplineGeometry
             a.X * (1-t) + b.X * t, a.Y * (1-t) + b.Y * t, a.W * (1-t) + b.W * t);
     }
     public static List<Curve> Flatten(int degree, IReadOnlyList<Point> points, IReadOnlyList<double> knots,
-        IReadOnlyList<double>? weights = null)
+        IReadOnlyList<double>? weights = null, double tolerance = Tolerance)
     {
         if (degree < 1 || degree > 16 || points.Count <= degree || knots.Count != points.Count + degree + 1 ||
             points.Any(p => !double.IsFinite(p.X) || !double.IsFinite(p.Y)) || knots.Any(k => !double.IsFinite(k)) ||
@@ -61,7 +61,7 @@ internal static class SplineGeometry
             var chord=Curve.Line(a,b);
             // Positive rational weights keep the curve in the control-point convex
             // hull. The maximum control distance bounds deviation from this chord.
-            if (control.All(h => (h.Point-chord.Closest(h.Point)).Length<=Tolerance))
+            if (control.All(h => (h.Point-chord.Closest(h.Point)).Length<=tolerance))
             {
                 if (result.Count>=250000) throw new InvalidDataException("Spline subdivision limit exceeded.");
                 result.Add(Curve.Line(origin+(a-new Point()),origin+(b-new Point())));return;

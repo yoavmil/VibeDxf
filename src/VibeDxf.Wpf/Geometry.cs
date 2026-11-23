@@ -163,6 +163,20 @@ public sealed record Curve(Point Start, Point End, Point Center, double Radius, 
         return best;
     }
 }
+/// <summary>Display-only cubic Bézier in world coordinates; the GPU tessellates it for the current zoom.</summary>
+internal readonly record struct CubicSegment(Point P0, Point P1, Point P2, Point P3)
+{
+    public CubicSegment Map(System.Windows.Media.Matrix m) => new(m.Transform(P0), m.Transform(P1), m.Transform(P2), m.Transform(P3));
+    public double PolygonLength => (P1 - P0).Length + (P2 - P1).Length + (P3 - P2).Length;
+    /// <summary>Largest second difference; the uniform-sampling chord error is at most 6·M/(8·n²).</summary>
+    public double Curvature => Math.Max((P0 - 2 * (Vector)P1 + (Vector)P2 - new Point()).Length, (P1 - 2 * (Vector)P2 + (Vector)P3 - new Point()).Length);
+    public (CubicSegment, CubicSegment) Split()
+    {
+        Point M(Point a, Point b) => new((a.X + b.X) / 2, (a.Y + b.Y) / 2);
+        var a = M(P0, P1); var b = M(P1, P2); var c = M(P2, P3); var d = M(a, b); var e = M(b, c); var f = M(d, e);
+        return (new(P0, a, d, f), new(f, e, c, P3));
+    }
+}
 /// <summary>Visibility categories. Values from <see cref="Dimension"/> up are display-only annotations.</summary>
 public enum EntityCategory
 {
@@ -235,6 +249,12 @@ public sealed class DxfEntity
     /// <summary>Resolved source RGBA, before viewer theme adjustment.</summary>
     public uint Color { get; internal init; } = DxfColors.White;
     internal int Group { get; set; }
+    /// <summary>Display-only exact curves (Béziers, elliptical arcs) drawn instead of their measurement chords; see <see cref="RenderCurves"/>.</summary>
+    internal IReadOnlyList<CubicSegment>? RenderCubics { get; init; }
+    /// <summary>Resolved fill RGBA when it differs from the stroke color (SVG); null uses <see cref="Color"/>.</summary>
+    public uint? FillColor { get; internal init; }
+    /// <summary>True when the single full-circle curve is a filled disc drawn as one GPU instance; its region is the analytic disc.</summary>
+    public bool FillDisc { get; internal init; }
 
     internal Func<Func<System.Windows.Media.Media3D.Point3D,Point>,DxfEntity>? Projection3D { get; set; }
     internal DxfSpatialGeometry? SpatialGeometry { get; set; }
@@ -249,6 +269,7 @@ public sealed class DxfEntity
     /// <summary>Tests even/odd containment in filled measurement regions; boundary-only entities normally have no interior.</summary>
     public bool Contains(Point p)
     {
+        if(FillDisc&&Curves is [{IsLine:false} disc])return (p-disc.Center).Length<=disc.Radius;
         bool inside=false;
         foreach(var polygon in RegionContours ?? FillContours)
             for(int i=0,j=polygon.Count-1;i<polygon.Count;j=i++)

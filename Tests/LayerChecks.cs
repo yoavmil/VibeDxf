@@ -124,7 +124,8 @@ public sealed class LayerChecks
     {
         var doc=DxfReader.Load(Path.Combine(AppContext.BaseDirectory,"Fixtures","dimensions.dxf"));using var h=new Harness(doc);
         var lines=Harness.Field(h.Renderer,"lineBuffer");
-        bool Full(byte r,byte g,byte b)=>r>230&&g>230&&b>230;
+        // 8x MSAA spreads a 1 px line over two rows: a full-intensity line peaks near 194, a dimmed one near 110.
+        bool Full(byte r,byte g,byte b)=>r>180&&g>180&&b>180;
         bool Dimmed(byte r,byte g,byte b)=>r is >90 and <170;
         var frame=h.Capture("Dimension (dimmed annotation) above an ordinary LINE");
         Assert.True(h.At(frame,new(3,-2),Full));

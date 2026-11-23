@@ -90,12 +90,24 @@ public partial class LayerPanel : UserControl
 
     private void Sync()
     {
-        if (viewer?.Document is not { } doc) return;
+        if (viewer?.Document is not { } doc)
+        {
+            // Release the previous drawing's rows (and their document reference) as soon as it is cleared.
+            if (document == null) return;
+            document = null; layers = []; LayerList.ItemsSource = layers; Header.Text = "Layers"; HasHiddenContent = false;
+            return;
+        }
         if (!ReferenceEquals(doc, document))
         {
             document = doc;
             layers = [.. doc.Layers.Select((l, i) => new LayerRow(this, i, l))];
             LayerList.ItemsSource = layers;
+            // SVG has no dimensions, leaders, hatches or viewports: offer only the Text toggle, and only when text exists.
+            bool svg = doc.SourceFormat == DrawingFormat.Svg;
+            var shown = svg ? categories.Where(c => c.Category == EntityCategory.Text && doc.Entities.Any(e => e.Category == EntityCategory.Text)).ToList() : categories;
+            Categories.ItemsSource = shown;
+            CategoryHeading.Text = svg ? "Elements" : "Annotations";
+            CategoryHeading.Visibility = Categories.Visibility = shown.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             ApplyFilter();
             MonochromeBox.IsChecked = viewer.Monochrome;
         }

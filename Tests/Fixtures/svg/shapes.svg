@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic VibeDxf SVG fixture (public domain). viewBox units equal mm; world y = -svg y. -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     width="200mm" height="100mm" viewBox="0 0 200 100">
+  <style>.st0{fill:none;stroke:#00ff00} /* class rule */ #TL{stroke:red}</style>
+  <defs>
+    <circle id="dot" r="2" fill="black"/>
+    <linearGradient id="grad"><stop offset="0" stop-color="#336699"/><stop offset="1" stop-color="white"/></linearGradient>
+  </defs>
+  <line id="L" x1="10" y1="10" x2="50" y2="10" stroke="red"/>
+  <circle id="C" cx="80" cy="10" r="5" fill="blue"/>
+  <rect id="R" x="10" y="30" width="20" height="10" fill="none" stroke="black"/>
+  <rect id="RR" x="40" y="30" width="20" height="10" rx="2" fill="green"/>
+  <ellipse id="E" cx="80" cy="35" rx="8" ry="4" fill="none" stroke="black"/>
+  <polygon id="PG" points="100,30 120,30 110,45" fill="url(#grad)"/>
+  <path id="P" d="M100 10 h20 a5 5 0 0 1 0 10 c-5,0 -5,-5 -10,-5 z" fill="none" stroke="purple"/>
+  <g id="G" transform="translate(150 10) rotate(90)"><line id="TL" x1="0" y1="0" x2="10" y2="0" stroke="black"/></g>
+  <use id="U" xlink:href="#dot" x="150" y="40"/>
+  <polyline id="PL" class="st0" points="10,60 30,70 50,60"/>
+  <path id="NZ" d="M60 55 h20 v20 h-20 z M65 60 h10 v10 h-10 z" fill="black"/>
+  <path id="EO" fill-rule="evenodd" d="M90 55 h20 v20 h-20 z M95 60 h10 v10 h-10 z" style="fill:#804000; fill-opacity:0.5"/>
+  <text id="T" x="140" y="90" font-size="8" text-anchor="end" fill="black">Hi <tspan fill="red">there</tspan></text>
+  <rect id="HIDDEN" x="0" y="0" width="5" height="5" display="none"/>
+  <g inkscape:groupmode="layer" inkscape:label="Hidden layer" style="display:none">
+    <line id="HL" x1="150" y1="80" x2="190" y2="80" stroke="black"/>
+  </g>
+</svg>

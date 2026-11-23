@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.Win32;
@@ -35,6 +35,7 @@ public partial class MainWindow : Window
             if (e.Key == Key.O && Keyboard.Modifiers == ModifierKeys.Control) { e.Handled = true; await ChooseFile(); }
             if (e.Key == Key.F && Keyboard.FocusedElement is not System.Windows.Controls.TextBox) Viewer.FitToDrawing();
             if (e.Key == Key.L && Keyboard.Modifiers == ModifierKeys.Control) { ShowPanel(PanelColumn.Width.Value == 0); e.Handled = true; }
+            if (e.Key == Key.B && Keyboard.Modifiers == ModifierKeys.Control) { SetWhiteBackground(!Viewer.IsLightBackground); e.Handled = true; }
             if (e.Key is Key.PageUp or Key.PageDown && Keyboard.Modifiers == ModifierKeys.Control && Viewer.Document != null)
             {
                 var current = Viewer.ActiveLayout is { } id ? Viewer.Document.Layouts.ToList().FindIndex(l => l.Id == id) : -1;
@@ -79,6 +80,13 @@ public partial class MainWindow : Window
         PanelMenu.IsChecked = show;
     }
     private void PanelMenuClicked(object sender, RoutedEventArgs e) => ShowPanel(PanelMenu.IsChecked);
+    private void BackgroundMenuClicked(object sender, RoutedEventArgs e) => SetWhiteBackground(BackgroundMenu.IsChecked);
+    // An explicit choice applies to the current drawing; opening another file returns to the format default (SVG white, DXF dark).
+    private void SetWhiteBackground(bool white)
+    {
+        Viewer.BackgroundMode = white ? DrawingBackground.Light : DrawingBackground.Dark;
+        BackgroundMenu.IsChecked = Viewer.IsLightBackground;
+    }
     private void LayoutTabChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (Viewer == null || LayoutTabs.SelectedIndex < 0) return;
@@ -87,7 +95,7 @@ public partial class MainWindow : Window
     private async void OpenClicked(object sender, RoutedEventArgs e) => await ChooseFile();
     private async Task ChooseFile()
     {
-        var dialog = new OpenFileDialog { Filter = "DXF drawings (*.dxf)|*.dxf", CheckFileExists = true };
+        var dialog = new OpenFileDialog { Filter = "Drawings (*.dxf;*.svg;*.svgz)|*.dxf;*.svg;*.svgz|DXF drawings (*.dxf)|*.dxf|SVG drawings (*.svg;*.svgz)|*.svg;*.svgz", CheckFileExists = true };
         if (dialog.ShowDialog(this) == true) await OpenFile(dialog.FileName);
     }
     private async Task OpenFile(string path)
@@ -95,6 +103,11 @@ public partial class MainWindow : Window
         if (loading) return;
         loading = true;
         Status.Text = $"Loading {Path.GetFileName(path)}…";
+        // Drop the current drawing immediately: the view shows progress and its memory can be reclaimed during the load.
+        Viewer.ClearDocument();
+        Viewer.PlaceholderText = $"Loading {Path.GetFileName(path)}…";
+        LayoutTabs.Visibility = Visibility.Collapsed;
+        Title = $"VibeDxf — loading {Path.GetFileName(path)}";
         try
         {
             var doc = (await DxfDocument.LoadAsync(path, lifetime.Token)).Document;
@@ -102,7 +115,9 @@ public partial class MainWindow : Window
             // Fill the tabs first: SetDocument raises LayoutChanged, which selects the matching tab.
             LayoutTabs.ItemsSource = new[] { "Model" }.Concat(doc.Layouts.Select(l => l.Name)).ToList();
             LayoutTabs.Visibility = doc.Layouts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            Viewer.BackgroundMode = DrawingBackground.Auto;
             await Viewer.SetDocumentAsync(doc, lifetime.Token);
+            BackgroundMenu.IsChecked = Viewer.IsLightBackground;
             // Open the panel when the file's saved layer state hides content, so the drawing doesn't look broken.
             if (Layers.HasHiddenContent) ShowPanel(true);
             Title = $"VibeDxf — {Path.GetFileName(path)}";
@@ -119,19 +134,20 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Status.Text = "Could not open drawing.";
-            MessageBox.Show(this, ex.Message, "Open DXF", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, ex.Message, "Open drawing", MessageBoxButton.OK, MessageBoxImage.Error);
         }
-        finally { loading = false; }
+        finally { loading = false; Viewer.PlaceholderText = null; }
     }
+    private static bool Supported(string path) => Path.GetExtension(path).ToLowerInvariant() is ".dxf" or ".svg" or ".svgz";
     private void FileDragOver(object sender, DragEventArgs e)
     {
         e.Effects = e.Data.GetData(DataFormats.FileDrop) is string[] paths && paths.Length == 1 &&
-            Path.GetExtension(paths[0]).Equals(".dxf", StringComparison.OrdinalIgnoreCase) ? DragDropEffects.Copy : DragDropEffects.None;
+            Supported(paths[0]) ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
     private async void FileDropped(object sender, DragEventArgs e)
     {
         if (e.Data.GetData(DataFormats.FileDrop) is string[] { Length: 1 } paths &&
-            Path.GetExtension(paths[0]).Equals(".dxf", StringComparison.OrdinalIgnoreCase)) await OpenFile(paths[0]);
+            Supported(paths[0])) await OpenFile(paths[0]);
     }
 }

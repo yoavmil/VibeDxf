@@ -8,7 +8,7 @@
 
 A truly-free 2D DXF viewer for Windows. I made this because the commercial DXF viewers requires registration.
 
-This viewer can load large files and can measure the shortest distance between any two elements.
+This viewer can load large files and can measure the shortest distance between any two elements. It also has partial SVG support: plot-style drawings with shapes, paths and text open and measure like DXF. See [Supported SVG](#supported-svg-partial).
 
 Written in C# / WPF on .NET 10, with GPU rendering through Direct3D 11 and Direct2D ([Vortice.Windows](https://github.com/amerkoleci/Vortice.Windows)).
 
@@ -71,7 +71,7 @@ Drawings show their DXF colors: the layer color (BYLAYER), an entity's own color
 Layers start as the drawing saved them: layers that are off or frozen are hidden. The **Layers panel** on the left (View › Layers panel, `Ctrl+L`) lists every layer with its color, element count and saved state. In the panel you can:
 - turn layers on and off, search them, show all, or restore the file's saved state;
 - double-click a layer to show only that layer;
-- show or hide annotation types: dimensions, leaders, multileaders, text, hatches and viewport frames;
+- show or hide annotation types: dimensions, leaders, multileaders, text, hatches and viewport frames (SVG drawings offer only a Text toggle);
 - switch the drawing to monochrome.
 
 When saved-off layers hide content, the panel opens by itself with a **Show all** button. Hidden items are excluded from interactive picking and measurement; document API queries can still measure hidden entities. Layers frozen in a single viewport are hidden only in that viewport. Linetypes (dashes) and lineweights are not applied yet.
@@ -90,6 +90,40 @@ Not supported yet: gradient hatches, excessively dense hatch patterns, multiline
 
 Units come from `$INSUNITS` when present; otherwise the footer says the drawing units are unspecified. No unit conversion is applied.
 
+
+## Supported SVG (partial)
+
+SVG support is **partial and new**. It targets technical and plot-style SVGs (lines, curves, point markers, labels), not illustrations. Unsupported features are listed below and reported in a warning after opening.
+
+VibeDxf opens `.svg` and gzip-compressed `.svgz` drawings through File › Open or drag and drop. Measurement, center/closest strategies and midpoint snapping work the same way as for DXF. Large files work: a 100 MB SVG with 1.7 million circles opens in a few seconds.
+
+**Shapes and coordinates**
+
+- **Shapes:** `line`, `rect` (including rounded corners), `circle`, `ellipse`, `polyline`, `polygon` and `path`. Paths support every command, including elliptical arcs.
+- **Exact and approximate geometry:** lines and circular arcs stay exact. Béziers and elliptical arcs are drawn smoothly at any zoom. For measurement they are approximated within 1/100,000 of the drawing size, and measurements involving them are marked "≈". Only exact straight segments have midpoint snaps.
+- **Units:** if the root `<svg>` declares a physical `width` (mm, cm, in, pt, pc), coordinates and measurements are in that unit. Otherwise they are SVG user units (px).
+- **Axis direction:** the y axis points up as in CAD, so signed ΔY has the opposite sign to SVG source coordinates.
+
+**Structure and styles**
+
+- **Groups and reuse:** groups, nested `<svg>`, `transform` lists, and `<use>`/`<symbol>` reuse are supported.
+- **Styles:** presentation attributes, `style="…"` and simple `<style>` CSS (type, `.class` and `#id` selectors).
+- **Paint:** named, hex, `rgb()`/`rgba()` and `currentColor` colors, with opacity. Both `nonzero` and `evenodd` fill rules work.
+- **Layers:** Inkscape layers become layers in the Layers panel. Without them, top-level groups with an `id` become layers. A hidden Inkscape layer starts switched off.
+
+**Text and display**
+
+- **Text:** `text`/`tspan` with position, font family, size, weight, style and `text-anchor`.
+- **Background:** SVG drawings open on a white background and DXF drawings on the dark one. View › White background (`Ctrl+B`) toggles it.
+
+**Not supported yet**
+
+- **Shown approximately:** stroke widths are drawn as hairlines, and dashed strokes are drawn solid. Gradients are filled with their first stop color.
+- **Ignored, with a note in the warning summary:** clip paths, masks, filters, markers, patterns, raster images, `textPath`, scripts and animation.
+- **CSS:** combinators, pseudo-classes and attribute selectors are ignored.
+- **Overlap:** where a filled shape overlaps a stroked one, strokes are drawn above fills regardless of document order.
+- **Selection outlines:** the highlight around a selected curve follows its measurement approximation, so at extreme zoom it can show small corners.
+- **Security:** external resources are never loaded, and DTD entity declarations are not processed.
 
 ## Embedding and geometry API
 

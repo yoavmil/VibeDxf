@@ -91,6 +91,37 @@ Local package verification: run ./tools/Test-LocalPackage.ps1. It packs into art
 
 Stable package release: the user explicitly approved VibeDxf.Wpf 0.2.0 on 2026-10-22. This promotes the verified preview without API/runtime changes. Use the annotated nuget/v0.2.0 source tag and automated publishing workflow; preserve the earlier preview and do not publish a desktop app release. Publication and isolated public-feed verification succeeded. See docs/NUGET-STABLE-0.2.0-RESULTS.md; this is the current stable package.
 
+## SVG import
+
+See docs/SVG-PLAN.md.
+
+**Reader**
+- **Streaming pass:** `SvgReader.cs` makes one forward-only `XmlReader` pass and fills the same `DrawingBuilder` as DXF, so `DxfDocument`, the renderer, picking and measurement are shared. Never switch the main pass to a DOM: real plots are 100 MB with 1.7M elements.
+- **Materialized subtrees:** only `defs`, symbols, gradients, `<style>`, `<text>`, and elements whose id a `<use>` references (found by a byte prescan for `<use`, then an XML id scan) are read as `XElement`.
+- **Parsing:** `SvgPathData.cs` parses path data in local coordinates. `Place` keeps arcs exact under similarity transforms and flattens them otherwise.
+- **Flattening bound:** Béziers and ellipses use `max(0.0001, 1e-5 × max(viewBox side) × root scale)` world units. The local bound is divided by the transform's largest singular value.
+- **Fixed DXF bound:** `SplineGeometry.Flatten` takes an optional tolerance; DXF keeps 0.0001.
+
+**Fills**
+- **Filled circles** set `DxfEntity.FillDisc`. They have no fill polygons, `Contains` is analytic, and the renderer draws one `DiscVS` instance per disc from `discBuffer`.
+- **Fill color:** `DxfEntity.FillColor` holds fill RGBA separately from the stroke `Color`.
+- **Nonzero fills** with several contours are outlined through WPF `GetOutlinedPathGeometry` so the even/odd triangulator gives nonzero coverage.
+
+**Display**
+- **Background:** every vertex/instance carries a dark color (COLOR, unchanged DXF behavior) and a light color (COLOR1). `style.w` selects between them, so `DrawingBackground` changes never re-upload geometry.
+- **Light colors:** SVG uses its source colors. DXF uses `DxfColors.ForLightBackground`, where white becomes black and bright colors darken.
+- **Auto background:** white for `DrawingFormat.Svg`.
+- **Dispose:** any new renderer buffer or shader must be added to `DrawingRenderer.Dispose`. A leaked COM reference keeps the HWND's swap chain alive, and re-creating the renderer on `Loaded` then fails with E_ACCESSDENIED (caught by LibraryApiChecks).
+
+**Deep zoom and antialiasing**
+- **GPU cubics:** Béziers, elliptical arcs and non-uniformly transformed circles are drawn from `DxfEntity.RenderCubics` as `CubicVS` instances. These are split at load to at most 1/256 of the view size and bucketed by second difference, with n = √(3·M·px) segments capped at 1024.
+- **Display vs measurement:** `RenderCurves` then holds only the exact lines and arcs. Measurement chords are never drawn, so zooming in cannot reveal them.
+- **MSAA:** `DrawingRenderer` renders into an 8×/4×/2× MSAA texture with `MultisampleEnable`, then calls `ResolveSubresource` into the flip-model back buffer before the Direct2D overlays. The D3D alpha-line flag produced no coverage on real drivers.
+- **Pixel thresholds:** a 1 px antialiased line peaks near 194 and a dimmed annotation near 110. Write pixel-threshold checks against those values.
+- **Check:** `SvgChecks.ZoomedBezierIsSmoothAndAntialiased` asserts ≤1 px deviation from the exact cubic and partial-coverage edge pixels at 100 and 2000 px per unit.
+
+**Tests:** `Tests/SvgChecks.cs` with `Tests/Fixtures/svg/shapes.svg`.
+
 ## Saved model cameras and spatial display
 
 See docs/SAVED-CAMERAS.md. DxfDocument.ModelViews/DefaultModelView expose saved VPORT and named model VIEW cameras; public DxfView restores the saved camera and exposes ActiveModelView plus ModelViewChanged. The desktop View > Model camera menu also offers original XY. The first *ACTIVE VPORT takes precedence over legacy HEADER settings; tiled camera definitions are selected individually. Positive-Z unclipped plan views reuse analytic model GPU ranges through their target/twist transform. Nonplan/perspective/depth-clipped views are display-only and reject model-XY anchors.

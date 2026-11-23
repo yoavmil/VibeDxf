@@ -25,6 +25,8 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
 {
     private static readonly Color4 BackColor = new(17 / 255f, 24 / 255f, 32 / 255f, 1);
     private static readonly Color4 LineColor = new(211 / 255f, 211 / 255f, 211 / 255f, 1);
+    private static readonly Color4 LightBackColor = new(1, 1, 1, 1);
+    private static readonly Color4 LightLineColor = new(40 / 255f, 40 / 255f, 40 / 255f, 1);
     private static readonly Color4 Orange = new(1, 165 / 255f, 0, 1);
     private static readonly Color4 Blue = new(0, 191 / 255f, 1, 1);
     private static readonly Color4 Green = new(0, 250 / 255f, 154 / 255f, 1);
@@ -140,7 +142,7 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     {
         if (host.Renderer is not { } renderer) return;
         renderer.SetDrawing(doc.Entities, Center(doc.Bounds),
-            [.. doc.Layouts.Select(l => ((IEnumerable<DxfEntity>)l.Entities, Center(l.Bounds)))], [.. doc.Groups.Select(g => g.Layer)], cancellationToken, [.. doc.Layouts.SelectMany(l=>l.Viewports).Where(v=>v.HasProjection).Concat(doc.ModelViews.Where(v=>v.IsSupported).Select(v=>v.Window!))]);
+            [.. doc.Layouts.Select(l => ((IEnumerable<DxfEntity>)l.Entities, Center(l.Bounds)))], [.. doc.Groups.Select(g => g.Layer)], cancellationToken, [.. doc.Layouts.SelectMany(l=>l.Viewports).Where(v=>v.HasProjection).Concat(doc.ModelViews.Where(v=>v.IsSupported).Select(v=>v.Window!))], doc.SourceFormat == DrawingFormat.Svg);
     }
 
     // ---- Layer and category visibility. Changes rewrite only the renderer's small group table.
@@ -149,6 +151,18 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     private bool monochrome;
     /// <summary>Raised when layer/category visibility or the color mode changes.</summary>
     public event Action? VisibilityChanged;
+    private string? placeholder;
+    internal string? Placeholder { get => placeholder; set { if (placeholder == value) return; placeholder = value; Invalidate(); } }
+    private DrawingBackground background;
+    /// <summary>Background mode; Auto is white for SVG documents and dark for DXF. Only a constant-buffer switch, never a re-upload.</summary>
+    public DrawingBackground BackgroundMode
+    {
+        get => background;
+        set { if (background == value) return; background = value; Invalidate(); VisibilityChanged?.Invoke(); }
+    }
+    /// <summary>Whether the current frame uses the white background.</summary>
+    public bool IsLightBackground => background == DrawingBackground.Light ||
+        (background == DrawingBackground.Auto && Document?.SourceFormat == DrawingFormat.Svg);
     /// <summary>Draw everything in one color instead of the DXF colors.</summary>
     public bool Monochrome
     {
@@ -292,8 +306,9 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
         renderQueued = false;
         if (host.Renderer is not { } renderer) return;
         var (w, h) = host.PixelSize;
-        try { renderer.Render(w, h, VisualTreeHelper.GetDpi(this).DpiScaleX, scale, offset, BackColor, LineColor, DrawOverlay,
-            activeLayout, Layout?.Viewports, monochrome,Layout==null?ModelView?.Window:null); }
+        bool light = IsLightBackground;
+        try { renderer.Render(w, h, VisualTreeHelper.GetDpi(this).DpiScaleX, scale, offset, light ? LightBackColor : BackColor, light ? LightLineColor : LineColor, DrawOverlay,
+            activeLayout, Layout?.Viewports, monochrome,Layout==null?ModelView?.Window:null, light); }
         catch (Exception ex) { ReportRenderingFailure(ex); }
     }
 
@@ -301,7 +316,7 @@ internal sealed class DxfViewport : System.Windows.Controls.Border
     {
         if (Document == null)
         {
-            DrawText(dc, "Wheel to zoom  ·  Middle/right drag to pan", 20, Hint,
+            DrawText(dc, Placeholder ?? "Wheel to zoom  ·  Middle/right drag to pan", 20, Hint,
                 null, w => new(Math.Max(20, (ActualWidth - w) / 2), Math.Max(20, ActualHeight / 2 - 50)));
             return;
         }

@@ -164,6 +164,15 @@ public sealed class DxfView : Border, IDisposable
         }
         viewport.ActiveLayout = index;
     }
+    /// <summary>Dependency property controlling the per-view background.</summary>
+    public static readonly DependencyProperty BackgroundModeProperty = DependencyProperty.Register(nameof(BackgroundMode), typeof(DrawingBackground), typeof(DxfView),
+        new PropertyMetadata(DrawingBackground.Auto, (d, e) => { var view = (DxfView)d; view.VerifyUsable(); view.viewport.BackgroundMode = (DrawingBackground)e.NewValue; }));
+    /// <summary>Background mode; Auto is white for SVG documents and dark for DXF documents.</summary>
+    public DrawingBackground BackgroundMode { get => (DrawingBackground)GetValue(BackgroundModeProperty); set => SetValue(BackgroundModeProperty, value); }
+    /// <summary>Message drawn while no document is assigned (for example during loading); null shows the default navigation hint.</summary>
+    public string? PlaceholderText { get => viewport.Placeholder; set => viewport.Placeholder = value; }
+    /// <summary>Whether the viewer currently draws on the white background.</summary>
+    public bool IsLightBackground => viewport.IsLightBackground;
     /// <summary>Dependency property controlling per-view monochrome display.</summary>
     public static readonly DependencyProperty MonochromeProperty = DependencyProperty.Register(nameof(Monochrome), typeof(bool), typeof(DxfView),
         new PropertyMetadata(false, (d, e) => { var view = (DxfView)d; view.VerifyUsable(); view.viewport.Monochrome = (bool)e.NewValue; }));

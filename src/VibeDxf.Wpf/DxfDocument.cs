@@ -86,6 +86,26 @@ public sealed class DxfLayout
     public Rect Bounds { get; }
 }
 
+/// <summary>Source file format of a loaded drawing.</summary>
+public enum DrawingFormat
+{
+    /// <summary>ASCII DXF.</summary>
+    Dxf,
+    /// <summary>SVG or gzip-compressed SVGZ; coordinates are y-up user (or declared physical) units.</summary>
+    Svg
+}
+
+/// <summary>Viewer background choice.</summary>
+public enum DrawingBackground
+{
+    /// <summary>White for SVG documents, dark for DXF documents.</summary>
+    Auto,
+    /// <summary>Dark CAD background; colors are lifted to a luminance floor.</summary>
+    Dark,
+    /// <summary>White paper background; SVG colors are used as authored, bright DXF colors are darkened.</summary>
+    Light
+}
+
 /// <summary>A fully prepared, read-only Windows/WPF drawing. Reading and measuring require no control or graphics device.</summary>
 public sealed class DxfDocument
 {
@@ -93,7 +113,7 @@ public sealed class DxfDocument
     internal DxfDocument(DrawingBuilder source)
     {
         LoadingContext.Check();
-        DocumentId = Guid.NewGuid(); RevisionId = Guid.NewGuid(); Units = source.Units;
+        DocumentId = Guid.NewGuid(); RevisionId = Guid.NewGuid(); Units = source.Units; SourceFormat = source.Format;
         Layers = Array.AsReadOnly(source.Layers.Select((l, i) => l with { Id = i }).ToArray());
         Groups = Array.AsReadOnly(source.Groups.ToArray());
         for(int i=0;i<source.ModelViews.Count;i++)source.ModelViews[i].Id=new(DocumentId,i);
@@ -133,6 +153,8 @@ public sealed class DxfDocument
     public Guid DocumentId { get; }
     /// <summary>Identity of the immutable snapshot represented by this state.</summary>
     public Guid RevisionId { get; }
+    /// <summary>Format of the source file.</summary>
+    public DrawingFormat SourceFormat { get; }
     /// <summary>Unit label from INSUNITS, or an explicit unspecified-units label; coordinates are not converted.</summary>
     public string Units { get; }
     /// <summary>Read-only entities in this coordinate space; document Entities denotes model space only.</summary>
@@ -165,7 +187,20 @@ public sealed class DxfDocument
     public static Task<DxfLoadResult> LoadAsync(string path, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return RunLoader(() => DxfReader.Load(path), cancellationToken);
+        bool svg = Path.GetExtension(path).ToLowerInvariant() is ".svg" or ".svgz";
+        return RunLoader(() => svg ? SvgReader.Load(path) : DxfReader.Load(path), cancellationToken);
+    }
+
+    /// <summary>Loads a DXF or SVG/SVGZ stream (SVG &lt;use&gt; resolves only earlier definitions). Ownership follows <paramref name="leaveOpen"/>.</summary>
+    public static Task<DxfLoadResult> LoadAsync(Stream source, DrawingFormat format, bool leaveOpen = true, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (format == DrawingFormat.Dxf) return LoadAsync(source, leaveOpen, cancellationToken);
+        return RunLoader(() =>
+        {
+            try { return SvgReader.Load(source); }
+            finally { if (!leaveOpen) source.Dispose(); }
+        }, cancellationToken, () => { if (!leaveOpen) source.Dispose(); });
     }
 
     /// <summary>Keep source alive and do not access it until completion. With leaveOpen=false it is disposed on every outcome.</summary>

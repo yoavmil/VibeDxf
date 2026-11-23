@@ -56,7 +56,7 @@ public sealed class DimensionChecks
                 var s=Screen(world);
                 return frame.Near((int)(s.X*frame.Width/view.ActualWidth),(int)(s.Y*frame.Height/view.ActualHeight),predicate);
             }
-            bool Light(byte r,byte g,byte b)=>r>120&&g>120&&b>120;
+            bool Light(byte r,byte g,byte b)=>r>95&&g>95&&b>95; // dimmed, MSAA-antialiased 1 px strokes peak near 110
             Assert.True(At(new(3,5),Light));Assert.True(At(new(-3,5),Light));Assert.True(At(new(20,15),Light));
             var lines=Field(renderer,"lineBuffer");var arcs=Field(renderer,"arcBuffer");
             Call(view,"SelectAt",new Point(3,5),true);Assert.Empty(view.Selected);

@@ -69,7 +69,19 @@ public static class DxfColors
         if (luminance >= floor) return color;
         double t = (floor - luminance) / (1 - luminance);
         byte Lift(byte c) => (byte)Math.Round(c + (255 - c) * t);
-        return Pack(Lift(r), Lift(g), Lift(b));
+        return Pack(Lift(r), Lift(g), Lift(b)) & 0x00FFFFFF | (color & 0xFF000000);
+    }
+
+    /// <summary>Light-background display policy for DXF colors: white (ACI 7) becomes black, other bright colors darken to a luminance ceiling.</summary>
+    public static uint ForLightBackground(uint color)
+    {
+        var (r, g, b) = Unpack(color);
+        if (r == 255 && g == 255 && b == 255) return color & 0xFF000000;
+        const double ceiling = 0.55;
+        double luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+        if (luminance <= ceiling) return color;
+        double k = ceiling / luminance;
+        return Pack((byte)Math.Round(r * k), (byte)Math.Round(g * k), (byte)Math.Round(b * k)) & 0x00FFFFFF | (color & 0xFF000000);
     }
 }
 

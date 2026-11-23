@@ -34,7 +34,7 @@
    </WrapPanel>
   </StackPanel>
   <StackPanel DockPanel.Dock="Bottom" Margin="10,6,10,10">
-   <TextBlock Text="Annotations" Style="{StaticResource Heading}"/>
+   <TextBlock x:Name="CategoryHeading" Text="Annotations" Style="{StaticResource Heading}"/>
    <ItemsControl x:Name="Categories">
     <ItemsControl.ItemTemplate>
      <DataTemplate>
