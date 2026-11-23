@@ -1,6 +1,10 @@
 # Publishing VibeDxf.Wpf
 
-## Stable 0.3.0
+## Stable 0.4.0
+
+Release 0.4.0 publishes the partial SVG import, GPU cubics/discs, multisample antialiasing and the background toggle. The user requested the version bump and release on 2026-11-23. Package and app versions are both 0.4.0, with independent `nuget/v0.4.0` and `v0.4.0` annotated tags and the existing validation/publication workflows. All public API changes are additive.
+
+## Stable 0.3.0 (historical)
 
 Published and publicly verified. See [release results](RELEASE-0.3.0-RESULTS.md).
 

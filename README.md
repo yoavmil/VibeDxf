@@ -2,7 +2,7 @@
 
 <img src="src/Assets/VibeDxf.svg" width="80" height="80" alt="VibeDxf icon">
 
-**[Download the Windows x64 installer](https://github.com/yoavmil/VibeDxf/releases/download/v0.3.0/VibeDxf-Setup-0.3.0-win-x64.exe)**
+**[Download the Windows x64 installer](https://github.com/yoavmil/VibeDxf/releases/download/v0.4.0/VibeDxf-Setup-0.4.0-win-x64.exe)**
 
 ![VibeDxf measuring from a wavy spline underline to the center of the circle inside b](docs/images/VibeDxf-demo.png)
 
@@ -127,4 +127,4 @@ VibeDxf opens `.svg` and gzip-compressed `.svgz` drawings through File › Open 
 
 ## Embedding and geometry API
 
-The MIT-licensed Windows/WPF library can be embedded in another application or used to traverse prepared drawing entities and query distances, including text outlines. Install [VibeDxf.Wpf 0.3.0 from NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.3.0). See the [package README](src/VibeDxf.Wpf/README.md), [independent examples](samples/PackageConsumers/README.md), and [MIT license](LICENSE).
+The MIT-licensed Windows/WPF library can be embedded in another application or used to traverse prepared drawing entities and query distances, including text outlines. Install [VibeDxf.Wpf 0.4.0 from NuGet.org](https://www.nuget.org/packages/VibeDxf.Wpf/0.4.0). See the [package README](src/VibeDxf.Wpf/README.md), [independent examples](samples/PackageConsumers/README.md), and [MIT license](LICENSE).

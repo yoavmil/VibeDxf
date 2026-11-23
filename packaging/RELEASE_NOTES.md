@@ -1,21 +1,23 @@
-# VibeDxf v0.3.0
+# VibeDxf v0.4.0
 
-Saved 3D viewpoints and broader DXF geometry support, including the complete Waschbecken sink wireframe.
+Partial SVG support, smooth curves at any zoom, antialiasing, and a white/dark background toggle.
 
-- Restore the drawing's saved model-space VPORT camera on open. View > Model camera selects saved VPORT configurations, named model VIEWs, or Original XY / measurement.
-- Honor orthographic direction, target, twist, framing, perspective lens length and front/back clipping in supported model and paper-space cameras. Retained XYZ display geometry uses GPU depth testing where surface triangles exist.
-- Render legacy 3D polylines, polygon/polyface meshes and MESH control wireframes, retaining XYZ for camera views and projected XY geometry for queries.
-- Read straight and elliptical ACIS SAT/SAB solid boundaries, plus the supported explicit rational/non-rational intersection-spline and tolerant-topology profiles. All 13 solids in Waschbecken-2018.dxf now load, including the basin, drain and draining board.
-- Display complete untrimmed ring-torus surfaces, including legacy SAT 400 files whose faces contain no boundary edges. Their surface mesh is display-only and creates no measurable topology.
-- Add saved-camera metadata/control APIs to VibeDxf.Wpf and expand regression coverage to 358 checks, including actual GPU readbacks and independent package consumers.
+- Open `.svg` and `.svgz` drawings (File › Open or drag and drop). Shapes, the full path syntax including elliptical arcs, transforms, declared physical units, simple CSS, `<use>`/`<symbol>`, text/tspan, opacity, nonzero/evenodd fills and Inkscape layers are supported. Measurement, center/closest strategies and midpoint snapping work as for DXF.
+- Large plot-style SVGs load quickly: a 100 MB file with 1.7 million filled circles opens in a few seconds and stays interactive. Filled circles are drawn as GPU instances.
+- Béziers and ellipses are tessellated on the GPU for the current zoom, so curves stay smooth when zoomed in deeply.
+- All drawings, DXF included, are now rendered with multisample antialiasing.
+- View › White background (`Ctrl+B`) toggles the background. SVG drawings open on white and DXF on dark. Toggling does not re-upload geometry.
+- Opening a file clears the current drawing immediately and shows a loading message.
+- For SVG drawings, the Layers panel offers only a Text toggle.
+- The VibeDxf.Wpf library gains additive APIs: `DrawingFormat`, `DxfDocument.SourceFormat`, `DrawingBackground`, `DxfView.BackgroundMode`/`IsLightBackground`/`PlaceholderText`, `DxfEntity.FillColor`/`FillDisc`, and a `LoadAsync(Stream, DrawingFormat)` overload. Regression coverage grows to 365 checks.
 
 ## Downloads
 
-- **VibeDxf-Setup-0.3.0-win-x64.exe**: per-user installer with Start menu shortcut, optional desktop shortcut and uninstall support.
-- **VibeDxf-0.3.0-win-x64.zip**: portable version; extract the complete folder and run VibeDxf.exe.
+- **VibeDxf-Setup-0.4.0-win-x64.exe**: per-user installer with Start menu shortcut, optional desktop shortcut and uninstall support.
+- **VibeDxf-0.4.0-win-x64.zip**: portable version. Extract the complete folder and run VibeDxf.exe.
 - **SHA256SUMS.txt**: SHA-256 checksums for both downloads.
 
-The embeddable library is released separately as **VibeDxf.Wpf 0.3.0** on NuGet.org.
+The embeddable library is released separately as **VibeDxf.Wpf 0.4.0** on NuGet.org.
 
 ## Requirements and limitations
 
@@ -24,8 +26,13 @@ https://dotnet.microsoft.com/download/dotnet/10.0
 
 The runtime is not bundled, downloaded or installed automatically. The .NET SDK is not required to run the app. The installer is unsigned.
 
-Only ASCII DXF is supported. Positive-Z plan cameras without depth clipping retain XY picking and measurement; nonplan, perspective and depth-clipped cameras are display-only. Document distance queries remain in projected XY, not true 3D. Edged solids, including the sink, remain wireframes: general trimmed ACIS surface meshing, shading/lighting, hidden-line removal and orbit controls are not implemented. Original SHX fonts, standalone ELLIPSE entities, external references, gradient hatches, linetypes and lineweights remain unsupported. See the README for detailed scope and approximation limits.
+**SVG support is partial:**
+- **Approximate display:** stroke widths are drawn as hairlines, dashes are drawn solid, and gradients use their first stop color.
+- **Ignored with a warning:** clip paths, masks, filters, markers, patterns, raster images and `textPath`.
+- **Overlap:** strokes are drawn above fills regardless of document order.
+
+Only ASCII DXF is supported. All existing DXF scope and limits from v0.3.0 are unchanged; see the README for details.
 
 ## Library host behavior
 
-DxfView now restores a supported saved model camera when assigning a document. Hosts requiring the original XY view can set ActiveModelView = null. XY coordinate conversion and model anchor selection through a noninteractive camera throw NotSupportedException. The existing document traversal and XY measurement contract remains unchanged; new camera metadata and selection APIs are additive.
+Existing APIs and behavior are unchanged apart from rendering: frames are now antialiased, so a 1 px line can spread across two pixel rows. `DxfView.BackgroundMode` defaults to Auto, which is dark for DXF documents and white for SVG.
