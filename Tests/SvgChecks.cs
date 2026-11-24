@@ -160,6 +160,39 @@ public sealed class SvgChecks
         finally { window.Close(); Pump(); }
     }));
 
+    // Plot files repeat every point: a black dot first, then a colored dot at the same place. Document order must win.
+    [Fact]
+    public void LaterDotsPaintOverEarlierOnes() => TestSupport.Run("GPU frames: 400 overlapping SVG point markers keep document paint order", () => TestSupport.Sta(() =>
+    {
+        const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Instance;
+        object? Field(object target, string name) => target.GetType().GetField(name, flags)!.GetValue(target);
+        object? Call(object target, string name, params object[] args) => target.GetType().GetMethod(name, flags)!.Invoke(target, args);
+        var svg = new StringBuilder("""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">""");
+        var spots = new List<Point>();
+        for (int i = 0; i < 20; i++) for (int j = 0; j < 20; j++) spots.Add(new(5 + i * 10, 5 + j * 10));
+        foreach (var p in spots) svg.Append($"""<circle cx="{p.X}" cy="{p.Y}" r="1" fill="black"/>""");
+        foreach (var p in spots) svg.Append($"""<circle cx="{p.X}" cy="{p.Y}" r="1" fill="red"/>""");
+        var doc = Parse(svg.Append("</svg>").ToString());
+        var view = new DxfViewport(); var window = new Window { Content = view, Width = 900, Height = 900, Left = -20000, Top = -20000, ShowInTaskbar = false, ShowActivated = false, WindowStyle = WindowStyle.None };
+        void Pump() => Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+        try
+        {
+            window.Show(); view.SetDocument(doc); Pump();
+            var renderer = (DrawingRenderer)Field(Field(view, "host")!, "<Renderer>k__BackingField")!;
+            var frame = VisualReport.Capture(renderer, "400 black-then-red point markers", () => Call(view, "RenderNow"));
+            int black = 0;
+            foreach (var p in spots)
+            {
+                var s = (Point)Call(view, "Screen", new Point(p.X, -p.Y))!;
+                int i = ((int)(s.Y * frame.Height / view.ActualHeight) * frame.Width + (int)(s.X * frame.Width / view.ActualWidth)) * 4;
+                byte b = frame.Pixels[i], g = frame.Pixels[i + 1], r = frame.Pixels[i + 2];
+                if (!(r > g + 60 && r > b + 60)) black++;
+            }
+            Assert.True(black == 0, $"{black} of {spots.Count} dots show the earlier black dot instead of the later red one");
+        }
+        finally { window.Close(); Pump(); }
+    }));
+
     [Fact]
     public void BackgroundToggleAndDiscsOnGpu() => TestSupport.Run("GPU frames: SVG on white, filled discs, dark toggle without re-upload", () => TestSupport.Sta(() =>
     {
@@ -183,6 +216,27 @@ public sealed class SvgChecks
             Assert.True(Pixel(new(150, -40), (r, g, b) => r < 60 && g < 60 && b < 60));      // black <use> disc
             Assert.True(Pixel(new(130, -60), (r, g, b) => r > 240 && g > 240 && b > 240));   // white paper
             Assert.True(Pixel(new(50, -35), (r, g, b) => g > 100 && r < 60 && b < 60));      // green rounded rect fill
+            // Document order: the later red dot covers the earlier black one, including its rim.
+            var dot = (Point)Call(view, "Screen", new Point(180, -60))!; int dx = (int)(dot.X * frame.Width / view.ActualWidth), dy = (int)(dot.Y * frame.Height / view.ActualHeight);
+            double rim = 3 * (double)Field(view, "scale")! * frame.Width / view.ActualWidth;
+            for (int k = -(int)rim; k <= (int)rim; k++)
+            {
+                int i = (dy * frame.Width + dx + k) * 4; byte b = frame.Pixels[i], g = frame.Pixels[i + 1], r = frame.Pixels[i + 2];
+                Assert.False(r < 120 && g < 120 && b < 120, $"black ink at offset {k} px inside the red dot (r={r} g={g} b={b})");
+            }
+            // Zoomed out so the dot is ~3 px wide (like plot point markers): its pixels must still read red, not black.
+            var savedScale = Field(view, "scale")!; var savedOffset = Field(view, "offset")!;
+            view.GetType().GetField("scale", flags)!.SetValue(view, 0.5);
+            view.GetType().GetField("offset", flags)!.SetValue(view, new Vector(view.ActualWidth / 2 - 180 * 0.5, view.ActualHeight / 2 - 60 * 0.5));
+            var small = VisualReport.Capture(renderer, "Overlapping SVG point markers at 3 px", () => Call(view, "RenderNow"));
+            int cx = small.Width / 2, cy = small.Height / 2, red = 0, dark = 0;
+            for (int y = cy - 3; y <= cy + 3; y++) for (int x = cx - 3; x <= cx + 3; x++)
+            {
+                int i = (y * small.Width + x) * 4; byte b = small.Pixels[i], g = small.Pixels[i + 1], r = small.Pixels[i + 2];
+                if (r > g + 60 && r > b + 60) red++; if (r < 110 && g < 110 && b < 110) dark++;
+            }
+            Assert.True(red > 0 && dark == 0, $"small overlapping dots: {red} red and {dark} dark pixels");
+            view.GetType().GetField("scale", flags)!.SetValue(view, savedScale); view.GetType().GetField("offset", flags)!.SetValue(view, savedOffset);
             var discs = Field(renderer, "discBuffer"); var fills = Field(renderer, "fillBuffer"); Assert.NotNull(discs);
             view.BackgroundMode = DrawingBackground.Dark; Assert.False(view.IsLightBackground);
             frame = VisualReport.Capture(renderer, "SVG fixture toggled to the dark background", () => Call(view, "RenderNow"));

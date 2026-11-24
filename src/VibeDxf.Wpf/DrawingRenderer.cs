@@ -268,27 +268,30 @@ internal sealed class DrawingRenderer : IDisposable
             }
             ArcBucket[] Buckets(List<ArcInstance> list, int first)
             {
-                list.Sort(first, list.Count - first, Comparer<ArcInstance>.Create((x, y) => x.Radius.CompareTo(y.Radius)));
+                // Stable by size bucket only: within a bucket instances keep document (paint) order, so later
+                // overlapping SVG dots stay on top. The bucket's largest radius sets its segment count.
+                var ordered = list.Skip(first).OrderBy(x => Math.ILogB(x.Radius)).ToArray();
+                for (int i = 0; i < ordered.Length; i++) list[first + i] = ordered[i];
                 var result = new List<ArcBucket>();
                 for (int i = first; i < list.Count;)
                 {
-                    var key = Math.ILogB(list[i].Radius); int start = i;
-                    while (i < list.Count && Math.ILogB(list[i].Radius) == key) i++;
-                    result.Add(new ArcBucket(start, i - start, list[i - 1].Radius));
+                    var key = Math.ILogB(list[i].Radius); int start = i; double max = 0;
+                    while (i < list.Count && Math.ILogB(list[i].Radius) == key) max = Math.Max(max, list[i++].Radius);
+                    result.Add(new ArcBucket(start, i - start, max));
                 }
                 return [.. result];
             }
             var bucketList = Buckets(arcs, a); var discBuckets = Buckets(discs, k);
             // Cubics are bucketed by their second-difference magnitude, which bounds the chord error for n segments.
-            var order = Enumerable.Range(b, cubics.Count - b).OrderBy(i => curvature[i]).ToArray();
+            var order = Enumerable.Range(b, cubics.Count - b).OrderBy(i => Math.ILogB(Math.Max(curvature[i], 1e-30f))).ToArray(); // stable: paint order within buckets
             var sorted = order.Select(i => cubics[i]).ToArray(); var sortedCurvature = order.Select(i => curvature[i]).ToArray();
             for (int i = 0; i < sorted.Length; i++) { cubics[b + i] = sorted[i]; curvature[b + i] = sortedCurvature[i]; }
             var cubicBuckets = new List<ArcBucket>();
             for (int i = b; i < cubics.Count;)
             {
-                var key = Math.ILogB(Math.Max(curvature[i], 1e-30f)); int start = i;
-                while (i < cubics.Count && Math.ILogB(Math.Max(curvature[i], 1e-30f)) == key) i++;
-                cubicBuckets.Add(new ArcBucket(start, i - start, curvature[i - 1]));
+                var key = Math.ILogB(Math.Max(curvature[i], 1e-30f)); int start = i; double max = 0;
+                while (i < cubics.Count && Math.ILogB(Math.Max(curvature[i], 1e-30f)) == key) max = Math.Max(max, curvature[i++]);
+                cubicBuckets.Add(new ArcBucket(start, i - start, max));
             }
             return new Part(o, new(l, lines.Count - l), new(f, triangles.Count - f), new(p, points.Count - p), new(d, dots.Count - d),
                 new(r, rays.Count - r), bucketList,entities.Any(e=>e.DisplayGeometry3D!=null), discBuckets, [.. cubicBuckets]);

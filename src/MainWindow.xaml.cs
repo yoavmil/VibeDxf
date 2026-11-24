@@ -6,7 +6,7 @@ using VibeDxf.Wpf;
 namespace VibeDxf;
 public partial class MainWindow : Window
 {
-    private bool loading;
+    private CancellationTokenSource? load; private string? loadingPath;
     private readonly CancellationTokenSource lifetime = new();
     public MainWindow()
     {
@@ -100,8 +100,14 @@ public partial class MainWindow : Window
     }
     private async Task OpenFile(string path)
     {
-        if (loading) return;
-        loading = true;
+        // The latest request wins: opening another file cancels the load in progress (the loaders check the token
+        // regularly, so the abandoned work stops quickly and its memory is released). Re-opening the file that is
+        // already loading keeps that load instead of restarting it.
+        var fullPath = Path.GetFullPath(path);
+        if (load != null && string.Equals(fullPath, loadingPath, StringComparison.OrdinalIgnoreCase)) return;
+        load?.Cancel();
+        var current = load = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        loadingPath = fullPath;
         Status.Text = $"Loading {Path.GetFileName(path)}…";
         // Drop the current drawing immediately: the view shows progress and its memory can be reclaimed during the load.
         Viewer.ClearDocument();
@@ -110,13 +116,14 @@ public partial class MainWindow : Window
         Title = $"VibeDxf — loading {Path.GetFileName(path)}";
         try
         {
-            var doc = (await DxfDocument.LoadAsync(path, lifetime.Token)).Document;
-            lifetime.Token.ThrowIfCancellationRequested();
+            var doc = (await DxfDocument.LoadAsync(path, current.Token)).Document;
+            current.Token.ThrowIfCancellationRequested();
             // Fill the tabs first: SetDocument raises LayoutChanged, which selects the matching tab.
             LayoutTabs.ItemsSource = new[] { "Model" }.Concat(doc.Layouts.Select(l => l.Name)).ToList();
             LayoutTabs.Visibility = doc.Layouts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             Viewer.BackgroundMode = DrawingBackground.Auto;
-            await Viewer.SetDocumentAsync(doc, lifetime.Token);
+            await Viewer.SetDocumentAsync(doc, current.Token);
+            current.Token.ThrowIfCancellationRequested();
             BackgroundMenu.IsChecked = Viewer.IsLightBackground;
             // Open the panel when the file's saved layer state hides content, so the drawing doesn't look broken.
             if (Layers.HasHiddenContent) ShowPanel(true);
@@ -127,16 +134,22 @@ public partial class MainWindow : Window
             if (doc.UnsupportedWarning is { } warning)
             {
                 Status.Text += doc.Skipped.Count>0 ? " • WARNING: incomplete drawing • Skipped: " + string.Join(", ", doc.Skipped.Select(p => $"{p.Key} ({p.Value})")) : " • WARNING: some text formatting is approximated";
-                MessageBox.Show(this, warning, "Unsupported DXF elements", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(this, warning, "Unsupported drawing elements", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
-        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-        catch (Exception ex)
+        // A superseded or closing load ends quietly; the newer load owns the status, title and placeholder.
+        catch (OperationCanceledException) when (current.IsCancellationRequested) { }
+        catch (Exception ex) when (!current.IsCancellationRequested)
         {
             Status.Text = "Could not open drawing.";
             MessageBox.Show(this, ex.Message, "Open drawing", MessageBoxButton.OK, MessageBoxImage.Error);
         }
-        finally { loading = false; Viewer.PlaceholderText = null; }
+        catch (Exception) { }
+        finally
+        {
+            if (ReferenceEquals(load, current)) { load = null; loadingPath = null; Viewer.PlaceholderText = null; }
+            current.Dispose();
+        }
     }
     private static bool Supported(string path) => Path.GetExtension(path).ToLowerInvariant() is ".dxf" or ".svg" or ".svgz";
     private void FileDragOver(object sender, DragEventArgs e)

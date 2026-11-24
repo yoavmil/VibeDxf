@@ -472,7 +472,9 @@ internal sealed class SvgReader
         doc.Entities.Add(new DxfEntity(kind, doc.Layers[layer].Name, handle, curves)
         {
             Color = stroke ?? fill!.Value, FillColor = fill, FillDisc = asDisc, FillContours = contours, IsApproximate = approximate,
-            RenderCurves = renderCubics is { Count: > 0 } ? renderCurves : null, RenderCubics = renderCubics is { Count: > 0 } ? renderCubics : null,
+            // stroke="none" draws no outline (SVG semantics); an outline in a later pass would cover later shapes' fills.
+            RenderCurves = stroke == null ? [] : renderCubics is { Count: > 0 } ? renderCurves : null,
+            RenderCubics = stroke != null && renderCubics is { Count: > 0 } ? renderCubics : null,
             InstancePath = useChain.Count == 0 ? null : string.Join("/", useChain.Reverse())
         });
     }
