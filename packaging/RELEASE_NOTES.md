@@ -1,23 +1,19 @@
-# VibeDxf v0.4.0
+# VibeDxf v0.4.1
 
-Partial SVG support, smooth curves at any zoom, antialiasing, and a white/dark background toggle.
+Bug-fix release for the new SVG support.
 
-- Open `.svg` and `.svgz` drawings (File › Open or drag and drop). Shapes, the full path syntax including elliptical arcs, transforms, declared physical units, simple CSS, `<use>`/`<symbol>`, text/tspan, opacity, nonzero/evenodd fills and Inkscape layers are supported. Measurement, center/closest strategies and midpoint snapping work as for DXF.
-- Large plot-style SVGs load quickly: a 100 MB file with 1.7 million filled circles opens in a few seconds and stays interactive. Filled circles are drawn as GPU instances.
-- Béziers and ellipses are tessellated on the GPU for the current zoom, so curves stay smooth when zoomed in deeply.
-- All drawings, DXF included, are now rendered with multisample antialiasing.
-- View › White background (`Ctrl+B`) toggles the background. SVG drawings open on white and DXF on dark. Toggling does not re-upload geometry.
-- Opening a file clears the current drawing immediately and shows a loading message.
-- For SVG drawings, the Layers panel offers only a Text toggle.
-- The VibeDxf.Wpf library gains additive APIs: `DrawingFormat`, `DxfDocument.SourceFormat`, `DrawingBackground`, `DxfView.BackgroundMode`/`IsLightBackground`/`PlaceholderText`, `DxfEntity.FillColor`/`FillDisc`, and a `LoadAsync(Stream, DrawingFormat)` overload. Regression coverage grows to 365 checks.
+- **Overlapping SVG dots show the correct color.** Plot files that draw a black point and then a colored point at the same position now show the colored one, as SVG intends. Before, many dots appeared black. Shapes with `stroke="none"` no longer get an outline, and overlapping filled shapes keep their document order.
+- **Opening another file while one is loading now works.** The load in progress is cancelled and the newly chosen file opens. Before, the second request was silently ignored. Re-opening the file that is already loading lets that load finish.
+
+See the v0.4.0 notes for the partial SVG import, smooth GPU curves, antialiasing and the background toggle.
 
 ## Downloads
 
-- **VibeDxf-Setup-0.4.0-win-x64.exe**: per-user installer with Start menu shortcut, optional desktop shortcut and uninstall support.
-- **VibeDxf-0.4.0-win-x64.zip**: portable version. Extract the complete folder and run VibeDxf.exe.
+- **VibeDxf-Setup-0.4.1-win-x64.exe**: per-user installer with Start menu shortcut, optional desktop shortcut and uninstall support.
+- **VibeDxf-0.4.1-win-x64.zip**: portable version. Extract the complete folder and run VibeDxf.exe.
 - **SHA256SUMS.txt**: SHA-256 checksums for both downloads.
 
-The embeddable library is released separately as **VibeDxf.Wpf 0.4.0** on NuGet.org.
+The embeddable library is released separately as **VibeDxf.Wpf 0.4.1** on NuGet.org. It has no API changes from 0.4.0.
 
 ## Requirements and limitations
 
@@ -29,10 +25,6 @@ The runtime is not bundled, downloaded or installed automatically. The .NET SDK 
 **SVG support is partial:**
 - **Approximate display:** stroke widths are drawn as hairlines, dashes are drawn solid, and gradients use their first stop color.
 - **Ignored with a warning:** clip paths, masks, filters, markers, patterns, raster images and `textPath`.
-- **Overlap:** strokes are drawn above fills regardless of document order.
+- **Overlap:** strokes are still drawn above fills regardless of document order.
 
-Only ASCII DXF is supported. All existing DXF scope and limits from v0.3.0 are unchanged; see the README for details.
-
-## Library host behavior
-
-Existing APIs and behavior are unchanged apart from rendering: frames are now antialiased, so a 1 px line can spread across two pixel rows. `DxfView.BackgroundMode` defaults to Auto, which is dark for DXF documents and white for SVG.
+See the README for the full DXF and SVG scope.

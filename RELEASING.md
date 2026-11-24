@@ -22,7 +22,7 @@ NuGet uses `nuget/v<version>` source tags and its own Trusted Publishing workflo
 
 | File | Purpose |
 | --- | --- |
-| [packaging/version.txt](packaging/version.txt) | Default release version, without the `v` prefix; currently `0.4.0`. |
+| [packaging/version.txt](packaging/version.txt) | Default release version, without the `v` prefix; currently `0.4.1`. |
 | [src/VibeDxf.csproj](src/VibeDxf.csproj) | App version, target framework, dependencies, and executable icon. |
 | [packaging/RELEASE_NOTES.md](packaging/RELEASE_NOTES.md) | Release description uploaded to GitHub. Update headings and download filenames for each version. |
 | [packaging/requirements.txt](packaging/requirements.txt) | Requirements shown before installation and copied into the portable app as `REQUIREMENTS.txt`. |
@@ -64,7 +64,7 @@ The window icon is also referenced in [src/MainWindow.xaml](src/MainWindow.xaml)
    version and commit, all three assets, requirements, and working download links.
    The installer should show the VibeDxf icon and offer the optional desktop shortcut.
 8. Update the README's direct installer link to the new version. It currently pins
-   `v0.4.0`, so publishing a new release does not change that link automatically.
+   `v0.4.1`, so publishing a new release does not change that link automatically.
 
 You can also start the workflow from GitHub's **Actions > Windows release > Run
 workflow** on `main`. It also accepts pushed `v*` tags, but a tag-triggered run must

@@ -1,6 +1,10 @@
 # Publishing VibeDxf.Wpf
 
-## Stable 0.4.0
+## Stable 0.4.1
+
+Patch release requested by the user on 2026-11-24. It fixes SVG paint order for overlapping filled dots, and in the desktop app a new open cancels a load in progress. There are no API changes. Independent annotated `nuget/v0.4.1` and `v0.4.1` tags.
+
+## Stable 0.4.0 (historical)
 
 Release 0.4.0 publishes the partial SVG import, GPU cubics/discs, multisample antialiasing and the background toggle. The user requested the version bump and release on 2026-11-23. Package and app versions are both 0.4.0, with independent `nuget/v0.4.0` and `v0.4.0` annotated tags and the existing validation/publication workflows. All public API changes are additive.
 

@@ -133,6 +133,10 @@ The SAT 400 torus fixture has no topological edges. Its bounded analytic torus m
 
 DxfAcisSpline.cs admits the explicit binary exact_int_cur 20900 profile and uses positive-weight rational Bezier hull bounds for XYZ flattening and saved parameter trims. DxfSolidProjection recognizes the exact tolerant topology names and validates endpoint differences using the admitted local tolerant vertex bounds without snapping the source curve. See docs/ACIS-SPLINE-BOUNDARIES.md. WashbasinSolidChecks includes numeric/rejection cases and the SHA-verified compressed public sink fixture, asserting all 13 solids plus actual XY/saved-camera GPU captures. This adds boundary coverage, not general ACIS face shading.
 
+## Release 0.4.1
+
+The user requested the 0.4.1 patch release on 2026-11-24. It fixes SVG paint order (stable instance buckets, no outline for `stroke="none"`) and makes the latest file open win. Library and app versions are 0.4.1.
+
 ## Release 0.4.0
 
 The user requested the 0.4.0 version bump and release of the SVG work on 2026-11-23. Library and app versions are 0.4.0, published through the existing independent annotated `nuget/v0.4.0` and `v0.4.0` workflows. Preserve all older versions and tags.

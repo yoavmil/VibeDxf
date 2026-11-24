@@ -2,7 +2,7 @@
  <PropertyGroup>
   <TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF>
   <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  <IsPackable>true</IsPackable><Version>0.4.0</Version>
+  <IsPackable>true</IsPackable><Version>0.4.1</Version>
   <PackageId>VibeDxf.Wpf</PackageId><Authors>Yoav Miller and contributors</Authors>
   <Description>Embeddable Windows/WPF DXF viewer with prepared text geometry, document traversal, layer controls and double-precision distance measurement.</Description>
   <PackageTags>DXF;CAD;WPF;viewer;geometry;measurement</PackageTags>
@@ -10,7 +10,7 @@
   <RepositoryUrl>https://github.com/yoavmil/VibeDxf</RepositoryUrl><RepositoryType>git</RepositoryType>
   <PackageLicenseExpression>MIT</PackageLicenseExpression><PackageReadmeFile>README.md</PackageReadmeFile>
   <Copyright>Copyright (c) 2026 Yoav Miller and contributors</Copyright>
-  <PackageReleaseNotes>Partial SVG/SVGZ import (shapes, paths, transforms, units, CSS subset, use/symbol, text, Inkscape layers) with additive DrawingFormat/SourceFormat, DrawingBackground/BackgroundMode, PlaceholderText, FillColor/FillDisc and LoadAsync(Stream, DrawingFormat) APIs; GPU-instanced filled discs and GPU-tessellated cubics; multisample antialiasing. Previously (0.3.0):Saved model-space VPORT and named VIEW cameras, perspective and depth clipping, and GPU depth display. Adds legacy 3D polylines/polyface meshes, MESH wireframes, straight/elliptical and explicit spline ACIS solid boundaries, tolerant topology, and complete untrimmed ring-torus surface display. All 13 Waschbecken sample solids load as boundary wireframes. Nonplan/perspective views are display-only; measurements remain projected XY. Requires Windows and .NET 10 Desktop Runtime. General trimmed surface shading, editing and DXF writing remain unsupported.</PackageReleaseNotes>
+  <PackageReleaseNotes>0.4.1: SVG paint order fixes; overlapping filled dots keep document order and stroke="none" shapes draw no outline. 0.4.0: Partial SVG/SVGZ import (shapes, paths, transforms, units, CSS subset, use/symbol, text, Inkscape layers) with additive DrawingFormat/SourceFormat, DrawingBackground/BackgroundMode, PlaceholderText, FillColor/FillDisc and LoadAsync(Stream, DrawingFormat) APIs; GPU-instanced filled discs and GPU-tessellated cubics; multisample antialiasing. Previously (0.3.0):Saved model-space VPORT and named VIEW cameras, perspective and depth clipping, and GPU depth display. Adds legacy 3D polylines/polyface meshes, MESH wireframes, straight/elliptical and explicit spline ACIS solid boundaries, tolerant topology, and complete untrimmed ring-torus surface display. All 13 Waschbecken sample solids load as boundary wireframes. Nonplan/perspective views are display-only; measurements remain projected XY. Requires Windows and .NET 10 Desktop Runtime. General trimmed surface shading, editing and DXF writing remain unsupported.</PackageReleaseNotes>
   <GenerateDocumentationFile>true</GenerateDocumentationFile>
  </PropertyGroup>
  <ItemGroup>
